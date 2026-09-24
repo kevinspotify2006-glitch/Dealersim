@@ -1,0 +1,54 @@
+name: Unpack dealership game
+
+on:
+  push:
+    paths:
+      - "Car-Dealership-Manager-Tycoon.zip"
+      - ".github/workflows/unpack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unpack game
+        run: |
+          rm -rf _unpacked
+          mkdir -p _unpacked
+          unzip -q Car-Dealership-Manager-Tycoon.zip -d _unpacked
+
+          ROOT="_unpacked/Car-Dealership-Manager-Tycoon"
+          if [ ! -d "$ROOT" ]; then
+            echo "Expected extracted folder not found"
+            find _unpacked -maxdepth 3 -type f | head -100
+            exit 1
+          fi
+
+          find "$ROOT" -type f -print0 | while IFS= read -r -d '' file; do
+            rel="${file#$ROOT/}"
+            mkdir -p "$(dirname "$rel")"
+            cp "$file" "$rel"
+          done
+
+          rm -rf _unpacked Car-Dealership-Manager-Tycoon.zip
+          find . -maxdepth 2 -type f | sort | head -100
+
+      - name: Commit unpacked game
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "Unpack dealership game"
+          git push
