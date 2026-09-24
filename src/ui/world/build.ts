@@ -64,6 +64,13 @@ export function buildPalette(host: BuildHost): HTMLElement {
   root.appendChild(tabs);
   const body = h('div', { class: 'bp-body' });
   root.appendChild(body);
+  const searchWrap = h('label', { class: 'bp-search', aria: { label: 'Search build items' } },
+    icon('search', 14),
+    h('input', { type: 'search', placeholder: 'Search buildings, furniture, equipment…', aria: { label: 'Search build items' } })
+  );
+  root.insertBefore(searchWrap, body);
+  const search = searchWrap.querySelector('input') as HTMLInputElement;
+  search.addEventListener('input', () => renderObjects());
 
   if (cat === 'zones') {
     body.appendChild(h('div', { class: 'bp-hint', text: 'Pick an area, then drag on the map to paint it. Indoor rooms get walls automatically — add a door so people can get in.' }));
@@ -176,21 +183,43 @@ export function buildPalette(host: BuildHost): HTMLElement {
         }, cost >= 0 ? `Rebuild · ${money(cost)}` : `Rebuild · +${money(-cost)}`)));
     }
   } else {
+    renderObjects();
+  }
+
+  function renderObjects(): void {
+    if (cat === 'zones' || cat === 'style' || cat === 'land' || cat === 'templates') return;
+    body.querySelector('.bp-object-list')?.remove();
+    const q = search.value.trim().toLowerCase();
+    const defs = OBJECTS.filter((o) => o.category === cat && (!q || [o.name, o.description, effectText(o)].join(' ').toLowerCase().includes(q)));
+    const wrap = h('div', { class: 'bp-object-list' });
     const grid = h('div', { class: 'bp-grid' });
-    for (const def of OBJECTS.filter((o) => o.category === cat)) {
+    if (!defs.length) wrap.appendChild(h('p', { class: 'empty', text: 'Geen items gevonden.' }));
+    for (const def of defs) {
       const locked = (def.minLevel ?? 1) > s.companyLevel;
       const active = (tool.kind === 'place' || tool.kind === 'move') && tool.defId === def.id;
-      grid.appendChild(h('button', {
-        class: `bp-item${active ? ' active' : ''}${locked ? ' locked' : ''}`,
+      const explanation = effectText(def) || 'Vooral visueel / decoratief.';
+      const card = h('button', {
+        class: `bp-item build-tip${active ? ' active' : ''}${locked ? ' locked' : ''}`,
         data: { obj: def.id },
         disabled: locked,
-        title: `${def.description}\n${effectText(def)}`,
+        title: `${def.description}\n\n${explanation}\nFormaat: ${def.w}×${def.h} m\nOnderhoud: ${money(def.upkeep)}/maand`,
         on: { click: () => host.setTool({ kind: 'place', defId: def.id, rot: 0 }) },
-      }, h('span', { class: 'bp-swatch', style: `border-color:${def.color}` }, def.icon), h('span', { class: 'bp-name', text: def.name }),
-      h('span', { class: 'bp-cost', text: locked ? `level ${def.minLevel}` : money(def.cost) }),
-      h('span', { class: 'bp-eff', text: `${def.w}×${def.h} · ${effectText(def)}` })));
+      },
+        h('span', { class: 'bp-swatch', style: `border-color:${def.color}` }, def.icon),
+        h('span', { class: 'bp-name', text: def.name }),
+        h('span', { class: 'bp-cost', text: locked ? `level ${def.minLevel}` : money(def.cost) }),
+        h('span', { class: 'bp-eff', text: `${def.w}×${def.h} m · ${explanation}` }),
+        h('span', { class: 'bp-tooltip' },
+          h('strong', { text: def.name }),
+          h('span', { text: def.description }),
+          h('span', { text: explanation }),
+          h('span', { class: 'tiny muted', text: `${def.w}×${def.h} m · ${money(def.cost)} · ${money(def.upkeep)}/mo` })
+        )
+      );
+      grid.appendChild(card);
     }
-    body.appendChild(grid);
+    wrap.appendChild(grid);
+    body.appendChild(wrap);
   }
   return root;
 }
