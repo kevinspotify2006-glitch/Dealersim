@@ -27,6 +27,7 @@ export interface Scene {
   ghost?: Ghost | null;
   paint?: PaintPreview | null;
   moveCar?: string | null;
+  moveCarTarget?: string | null;
   flow?: boolean;
   dpr: number;
 }
@@ -831,9 +832,10 @@ export function renderScene(canvas: HTMLCanvasElement, s: Scene): void {
         const f = footprint(o);
         const who = used.get(o.id);
         if (who === s.moveCar) continue;
-        g.fillStyle = who ? 'rgba(255,194,51,0.22)' : 'rgba(47,209,139,0.28)';
+        const target = s.moveCarTarget === o.id;
+        g.fillStyle = target ? 'rgba(60,199,255,0.38)' : who ? 'rgba(255,194,51,0.22)' : 'rgba(47,209,139,0.28)';
         g.fillRect(f.x + 0.1, f.y + 0.1, f.w - 0.2, f.h - 0.2);
-        g.strokeStyle = who ? '#ffc233' : '#2fd18b';
+        g.strokeStyle = target ? '#3cc7ff' : who ? '#ffc233' : '#2fd18b';
         g.lineWidth = 0.08;
         g.strokeRect(f.x + 0.1, f.y + 0.1, f.w - 0.2, f.h - 0.2);
       }
