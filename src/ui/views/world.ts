@@ -172,7 +172,7 @@ export function worldView(ctx: Ctx): View {
     }
     crowd.step(dt, pace(), ctx.state, loc);
     renderScene(canvas, {
-      state: ctx.state, loc, cam, crowd, time, build: ui.build, selected: ui.selected, ghost: ghost(), paint: paintPreview(), moveCar: ui.moveCar, flow: ui.flow || (ui.build && ui.tool.kind === 'paint'), dpr,
+      state: ctx.state, loc, cam, crowd, time, build: ui.build, selected: ui.selected, ghost: ghost(), paint: paintPreview(), moveCar: ui.moveCar, moveCarTarget: dragTargetSlot, flow: ui.flow || (ui.build && ui.tool.kind === 'paint'), dpr,
     });
     if (popAnchor && !isPhone()) placePop();
     raf = requestAnimationFrame(frame);
@@ -280,7 +280,9 @@ export function worldView(ctx: Ctx): View {
 
   // -------------------------------------------------------------- gestures --
   const pointers = new Map<number, { x: number; y: number; sx: number; sy: number; type: string }>();
-  let gesture: 'none' | 'pan' | 'pinch' | 'paint' | 'ghost' = 'none';
+  let gesture: 'none' | 'pan' | 'pinch' | 'paint' | 'ghost' | 'carDrag' = 'none';
+  let dragVehicleId: string | null = null;
+  let dragTargetSlot: string | null = null;
   let moved = false;
   let downAt = 0;
   let longTimer = 0;
@@ -311,6 +313,12 @@ export function worldView(ctx: Ctx): View {
     downAt = performance.now();
     const w = cam.toWorld(p.x, p.y);
     gesture = 'pan';
+    dragVehicleId = null;
+    dragTargetSlot = null;
+    if (!ui.build && e.button === 0) {
+      const v = vehicleAt(w);
+      if (v && (v.status === 'yard' || v.status === 'listed')) dragVehicleId = v.id;
+    }
     if (ui.build && e.button === 0) {
       const t = ui.tool;
       if (t.kind === 'paint') {
@@ -331,6 +339,15 @@ export function worldView(ctx: Ctx): View {
       onLongPress(w);
     }, 480);
   };
+  const carDropSlotAt = (w: { x: number; y: number }): string | null => {
+    const target = objectAt(w);
+    if (!target) return null;
+    const o = loc.lot.objects.find((x) => x.id === target);
+    if (!o) return null;
+    const slot = OBJ_BY_ID[o.defId]?.slot;
+    return slot && slot !== 'lift' && slot !== 'bay' ? o.id : null;
+  };
+
   const moveGhostTo = (w: { x: number; y: number }): void => {
     const t = ui.tool;
     if (t.kind !== 'place' && t.kind !== 'move') return;
@@ -368,6 +385,16 @@ export function worldView(ctx: Ctx): View {
       return;
     }
     if (!moved) return;
+    if (dragVehicleId && gesture === 'pan') {
+      startMoveCar(dragVehicleId);
+      gesture = 'carDrag';
+      dragTargetSlot = carDropSlotAt(cam.toWorld(p.x, p.y));
+      return;
+    }
+    if (gesture === 'carDrag') {
+      dragTargetSlot = carDropSlotAt(cam.toWorld(p.x, p.y));
+      return;
+    }
     if (gesture === 'paint' && ui.tool.kind === 'paint') {
       ui.tool.end = tileAt(cam.toWorld(p.x, p.y));
       return;
@@ -392,6 +419,18 @@ export function worldView(ctx: Ctx): View {
     const w = cam.toWorld(p.x, p.y);
     const g = gesture;
     gesture = 'none';
+    if (g === 'carDrag') {
+      const id = dragVehicleId;
+      const target = carDropSlotAt(w) ?? dragTargetSlot;
+      if (id && target) {
+        const r = moveVehicleTo(ctx.state, loc, id, target);
+        ctx.act(r);
+        if (r.ok) play('click');
+        else toast(r.message, 'bad');
+      }
+      stopMoveCar();
+      return;
+    }
     if (g === 'paint') {
       if (rec.type === 'mouse') commitPaint();
       else paintConfirm();
@@ -450,7 +489,7 @@ export function worldView(ctx: Ctx): View {
   const onLongPress = (w: { x: number; y: number }): void => {
     haptic(25);
     const v = ui.build ? undefined : vehicleAt(w);
-    if (v && (v.status === 'yard' || v.status === 'listed')) { startMoveCar(v.id); return; }
+    if (v && (v.status === 'yard' || v.status === 'listed')) { startMoveCar(v.id); dragVehicleId = v.id; gesture = 'carDrag'; return; }
     const obj = objectAt(w, !ui.build ? false : true) ?? objectAt(w);
     if (obj) startMoveObject(obj);
   };
@@ -549,6 +588,8 @@ export function worldView(ctx: Ctx): View {
   };
   const stopMoveCar = (): void => {
     ui.moveCar = null;
+    dragVehicleId = null;
+    dragTargetSlot = null;
     banner.classList.remove('open');
     banner.replaceChildren();
     releaseMove?.();
