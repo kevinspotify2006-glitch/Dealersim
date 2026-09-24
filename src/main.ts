@@ -32,6 +32,7 @@ import { canPromote } from './sim/staff';
 import { onLayoutChange } from './ui/layout';
 import * as trading from './sim/trading';
 import * as lotSim from './sim/lot';
+import { OBJ_BY_ID } from './data/lot';
 
 const root = document.getElementById('app');
 if (!root) throw new Error('#app is missing from the page');
@@ -94,6 +95,7 @@ function boot(state: GameState): void {
     save: () => saveGame(engine.state, AUTOSAVE_ID),
     trading,
     lot: lotSim,
+    objects: OBJ_BY_ID,
   };
 }
 
