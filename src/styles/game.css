@@ -740,8 +740,13 @@ button.wh-chip:hover { border-color: var(--accent); }
 .bp-tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); overflow-x: auto; scrollbar-width: none; flex: 0 0 auto; }
 .bp-tabs::-webkit-scrollbar { display: none; }
 .bp-tab {
-  flex: 0 0 auto; padding: 6px 11px; border-radius: var(--r-pill); border: 1px solid var(--line);
-  background: var(--panel); color: var(--text-2); font: 600 11.5px var(--font-ui); cursor: pointer;
+  flex: 0 1 auto; min-width: 0; padding: 5px 8px; border-radius: var(--r-pill); border: 1px solid var(--line);
+  background: var(--panel); color: var(--text-2); font: 600 10.5px var(--font-ui); cursor: pointer;
+  white-space: nowrap; text-overflow: ellipsis; overflow: hidden;
+}
+@media (min-width: 901px) {
+  .world-palette { width: 360px; }
+  .bp-tabs { gap: 3px; padding-left: 8px; padding-right: 8px; }
 }
 .bp-tab.active { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: var(--text); }
 .bp-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 10px 18px; }
