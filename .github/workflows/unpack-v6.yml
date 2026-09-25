@@ -1,0 +1,32 @@
+name: Unpack v6 ZIP
+
+on:
+  push:
+    paths:
+      - 'Car-Dealership-Manager-Tycoon-v6.zip'
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack v6
+        run: |
+          unzip -o Car-Dealership-Manager-Tycoon-v6.zip -d /tmp/dealership-v6
+          cp -a /tmp/dealership-v6/. .
+          rm -rf /tmp/dealership-v6
+          rm -f Car-Dealership-Manager-Tycoon-v6.zip
+          rm -f .github/workflows/unpack-v6.yml
+
+      - name: Commit extracted game
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Unpack Car Dealership Manager Tycoon v6"
+          git push
