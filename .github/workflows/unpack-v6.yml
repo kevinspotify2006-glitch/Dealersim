@@ -2,8 +2,7 @@ name: Unpack v6 ZIP
 
 on:
   push:
-    paths:
-      - 'Car-Dealership-Manager-Tycoon-v6.zip'
+    branches: [main]
 
 permissions:
   contents: write
@@ -16,6 +15,7 @@ jobs:
 
       - name: Unpack v6
         run: |
+          if [ ! -f Car-Dealership-Manager-Tycoon-v6.zip ]; then exit 0; fi
           unzip -o Car-Dealership-Manager-Tycoon-v6.zip -d /tmp/dealership-v6
           cp -a /tmp/dealership-v6/. .
           rm -rf /tmp/dealership-v6
