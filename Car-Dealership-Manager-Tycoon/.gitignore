@@ -1,0 +1,31 @@
+# dependencies
+node_modules
+
+# build output (regenerate with `npm run build`)
+build/
+dist/
+
+# Android / Gradle
+android/.gradle/
+android/app/build/
+android/build/
+android/local.properties
+android/.idea/
+*.iml
+*.apk.unsigned
+
+# signing keys — never commit
+*.keystore
+*.jks
+
+# local environment
+.env
+.env.local
+
+# logs and OS junk
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/
+__pycache__/
