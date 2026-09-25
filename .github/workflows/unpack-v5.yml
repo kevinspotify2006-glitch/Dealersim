@@ -2,8 +2,6 @@ name: Unpack v5 ZIP
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
   contents: write
