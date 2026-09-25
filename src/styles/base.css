@@ -1,0 +1,1319 @@
+/* ============================================================================
+   CAR DEALERSHIP MANAGER TYCOON — the visual system.
+
+   The primitives (panel, kpi, stat, tag, btn, table, modal, toast, the shell
+   and its three navigation shapes) come from Business Manager's design system
+   and keep its rule: a new screen does not invent new furniture. The identity
+   on top — asphalt blacks, a tachometer-orange accent, condensed uppercase
+   labels, vehicle art — is this game's own.
+
+   Colour means something and is never decoration:
+     orange  interaction, where you are, the thing to press
+     green   money in, profit, good condition
+     red     losing money, defects, risk
+     amber   attention, waiting customers
+     cyan    information, online, market data
+   ========================================================================== */
+
+:root {
+  /* ---- ground and surfaces: asphalt, not navy */
+  --bg: #090a0c;
+  --bg-2: #0f1114;
+  --panel: #14171b;
+  --panel-2: #1b1f24;
+  --panel-3: #242930;
+  --line: #262b32;
+  --line-soft: #1c2026;
+
+  /* ---- text */
+  --text: #eef1f4;
+  --text-2: #a3abb6;
+  --text-3: #6b7480;
+
+  /* ---- primary: the redline */
+  --accent: #ff7a1a;
+  --accent-hot: #ff9a4d;
+  --accent-deep: #c85400;
+  --accent-2: #c85400;
+
+  /* ---- semantic */
+  --good: #2fd18b;
+  --bad: #ff4d5e;
+  --warn: #ffc233;
+  --tech: #9b8cff;
+  --info: #3cc7ff;
+
+  --wash: 14%;
+  --wash-soft: 8%;
+  --edge: 34%;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+  --radius: var(--r-md);
+  --radius-sm: var(--r-sm);
+
+  --e-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --e-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --e-lg: 0 18px 48px rgba(0, 0, 0, 0.65);
+  --shadow: var(--e-lg);
+
+  --nav-w: 60px;
+  --nav-w-open: 214px;
+  --header-h: 64px;
+  --gutter: 22px;
+
+  --font-ui: "Segoe UI", Roboto, "Inter", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Bahnschrift", "DIN Alternate", "Roboto Condensed", "Arial Narrow", "Segoe UI", Roboto, sans-serif;
+
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  /* The app never scrolls sideways as a page — every wide thing scrolls inside
+     its own box. Clipping here stops a stray overflow from widening the mobile
+     layout viewport, which would push every fixed overlay off screen.
+
+     Note for anybody measuring this: documentElement.scrollWidth still reports
+     the clipped layout overflow, and window.scrollTo can still move scrollLeft
+     programmatically. Neither is something a player can do. The only honest
+     test is a real sideways wheel or drag, which this line does prevent. */
+  max-width: 100%;
+  overflow-x: clip;
+  background: var(--bg);
+  color: var(--text);
+  font: 13.5px/1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  /* Kills the double-tap-to-zoom delay on phones. Tapping two buttons quickly
+     is normal here, and it must never zoom the interface. */
+  touch-action: manipulation;
+}
+
+#app { height: 100%; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button, a, input, select, textarea, label,
+.nav-item, .card.clickable, tr.clickable {
+  touch-action: manipulation;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 620; letter-spacing: -0.01em; }
+
+/* Focus is visible everywhere, and it is the same ring everywhere. */
+:focus-visible {
+  outline: 2px solid var(--accent-hot);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbars are styled only on the boxes that actually scroll inside the app,
+   never with a bare `::-webkit-scrollbar`. A global rule replaces the document's
+   overlay scrollbar with a classic one, and a classic scrollbar reserves layout
+   width — which on a 390px phone is ten pixels of real overflow on every screen
+   with a table on it. */
+.main::-webkit-scrollbar, .nav::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar, .table-wrap::-webkit-scrollbar {
+  width: 10px; height: 10px;
+}
+.main::-webkit-scrollbar-track, .nav::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track, .table-wrap::-webkit-scrollbar-track {
+  background: transparent;
+}
+.main::-webkit-scrollbar-thumb, .nav::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb, .table-wrap::-webkit-scrollbar-thumb {
+  background: var(--panel-3); border-radius: 999px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+.main::-webkit-scrollbar-thumb:hover, .nav::-webkit-scrollbar-thumb:hover,
+.modal-body::-webkit-scrollbar-thumb:hover, .table-wrap::-webkit-scrollbar-thumb:hover {
+  background: #343b45; background-clip: content-box;
+}
+
+/* ============================================================ app shell === */
+
+/* Views live in here rather than directly in the scroller, so a rebuild can
+   hold the page at the height it already had. See App.mount(): that hold is
+   the whole of the scroll-jump fix, and it works by making the clamp
+   impossible rather than by undoing it afterwards. */
+.main-inner {
+  display: flex; flex-direction: column;
+  min-width: 0; min-height: 100%;
+}
+/* A screen that wants the whole height gets it by
+   growing inside this column rather than by asking for 100% of a parent whose
+   height is only a minimum.
+
+   `min-width: 0` is not decoration. A flex item defaults to `min-width: auto`,
+   which means it refuses to be narrower than its own content — so one wide
+   table stretched the entire screen past the edge of the phone and took the
+   scrolling box built to contain it along with it. This is the line that keeps
+   the table scrolling inside its own box instead of dragging the page. */
+.main-inner > .view { flex: 1 1 auto; min-height: 0; min-width: 0; width: 100%; }
+
+.shell {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: var(--nav-w) 1fr;
+  transition: grid-template-columns 0.16s ease;
+  grid-template-rows: calc(var(--header-h) + var(--safe-t)) 1fr;
+  grid-template-areas: "brand header" "nav main";
+  height: 100%;
+}
+/* Opened, the sidebar takes the width it needs and the page gives it up. */
+.shell:has(.nav.open) { grid-template-columns: var(--nav-w-open) 1fr; }
+.shell:not(:has(.nav.open)) .brand { justify-content: center; padding: var(--safe-t) 0 0 var(--safe-l); }
+.shell:not(:has(.nav.open)) .brand > div:not(.brand-mark) { display: none; }
+
+/* ---- brand, sitting at the head of the sidebar column */
+.brand {
+  grid-area: brand;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: var(--safe-t) 14px 0 calc(14px + var(--safe-l));
+  background: var(--bg-2);
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.brand:hover .brand-mark { transform: scale(1.04); }
+.brand-mark { transition: transform 0.12s ease; }
+.brand-mark {
+  width: 27px; height: 27px; flex: 0 0 auto;
+  border-radius: 9px;
+  display: grid; place-items: center;
+  background: linear-gradient(150deg, var(--accent-hot), var(--accent-deep));
+  box-shadow: 0 4px 12px rgba(255, 122, 26, 0.35);
+  color: #fff;
+}
+.brand-mark svg { width: 17px; height: 17px; }
+.brand-name {
+  font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em;
+  text-transform: uppercase; line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.brand-sub {
+  font-size: 10px; color: var(--text-3); letter-spacing: 0.05em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---- header */
+.topbar {
+  grid-area: header;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: var(--safe-t) calc(var(--gutter) + var(--safe-r)) 0 var(--gutter);
+  height: calc(var(--header-h) + var(--safe-t));
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Where you are, and what this screen is for. */
+.page-title { min-width: 0; flex: 1 1 auto; max-width: 42ch; }
+.page-title h1 {
+  font-size: 19px; font-weight: 650; letter-spacing: -0.015em;
+  line-height: 1.2;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.page-title p {
+  margin: 1px 0 0; font-size: 11.5px; color: var(--text-3);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+.topbar-spacer { flex: 0 1 24px; min-width: 8px; }
+
+/* The live figures. A horizontal scroller of its own so a narrow window
+   never widens the page. */
+.hud {
+  display: flex; align-items: center; gap: 18px;
+  min-width: 0; overflow-x: auto; scrollbar-width: none;
+  padding: 0 2px;
+}
+.hud::-webkit-scrollbar { display: none; }
+.metric { display: flex; flex-direction: column; line-height: 1.2; flex: 0 0 auto; }
+.metric-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-3); font-weight: 600;
+}
+.metric-value { font-size: 14.5px; font-weight: 680; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.metric-value.good { color: var(--good); }
+.metric-value.bad { color: var(--bad); }
+.metric-sub { font-size: 10px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* The clock. Pause is the widest button because it is the one you reach for. */
+.speed-group {
+  display: flex; gap: 2px; background: var(--panel); padding: 3px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); flex: 0 0 auto;
+}
+.speed-btn {
+  min-width: 32px; height: 28px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text-3);
+  font-size: 11.5px; font-weight: 650; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.speed-btn:hover { color: var(--text); background: var(--panel-2); }
+.speed-btn.active { background: var(--accent); color: #fff; }
+
+.bell { position: relative; flex: 0 0 auto; }
+.bell-count {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  border-radius: 999px; background: var(--bad); color: #fff;
+  border: 2px solid var(--bg-2);
+  font-size: 9.5px; font-weight: 700; display: grid; place-items: center;
+}
+
+.avatar {
+  width: 30px; height: 30px; flex: 0 0 auto; border-radius: 50%;
+  display: grid; place-items: center;
+  background: linear-gradient(150deg, var(--accent-hot), var(--accent-deep));
+  color: #fff; font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+}
+.avatar.sm { width: 26px; height: 26px; font-size: 10px; }
+.avatar.tech { background: linear-gradient(150deg, #a78bfa, #6d28d9); }
+.avatar.good { background: linear-gradient(150deg, #4ade80, #15803d); }
+.avatar.warn { background: linear-gradient(150deg, #fbbf24, #b45309); }
+
+/* ---- sidebar
+   Seven sections, not twenty-two screens. A rail of icons by default, a panel
+   of labels when the player opens it, and the same markup for both — the
+   submenu is drawn once and CSS decides whether it is a flyout beside the rail
+   or a list under its section header. That is what makes opening the sidebar
+   free: nothing is rebuilt, a class is toggled. */
+.nav {
+  grid-area: nav;
+  min-width: 0;
+  background: var(--bg-2);
+  border-right: 1px solid var(--line);
+  padding: 6px 6px calc(12px + var(--safe-b)) calc(6px + var(--safe-l));
+  display: flex; flex-direction: column; gap: 1px;
+}
+/* The rail must not clip, because its submenus hang outside it. One axis
+   cannot be visible while the other scrolls — ask for `overflow-y: auto` and
+   the browser clips horizontally too, which is why the first version of the
+   flyout was built, positioned, and then invisible. Seven rows always fit, so
+   the rail simply does not scroll. */
+.nav:not(.open) { overflow: visible; }
+/* Opened, the submenu is inline and there is nothing to hang outside, so the
+   panel may scroll on a short window. */
+.nav.open {
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+}
+
+.nav-sec { position: relative; }
+
+.nav-item {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 6px 9px;
+  border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-2);
+  font-size: 12.5px; text-align: left; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.nav-item:hover { background: var(--panel); color: var(--text); }
+
+/* The active screen, and the section holding it. Quiet: a wash, the accent on
+   the label, and a two-pixel mark down the left edge — not a blue slab. */
+.nav-item.active {
+  background: color-mix(in srgb, var(--accent) var(--wash), transparent);
+  color: var(--accent-hot);
+  font-weight: 620;
+}
+.nav-item.active::before {
+  content: ''; position: absolute; left: 0; top: 7px; bottom: 7px;
+  width: 2px; border-radius: 0 2px 2px 0; background: var(--accent);
+}
+.nav-icon {
+  width: 17px; height: 17px; flex: 0 0 auto;
+  display: grid; place-items: center; color: var(--text-3);
+}
+.nav-icon svg { display: block; }
+.nav-item:hover .nav-icon { color: var(--text-2); }
+.nav-item.active .nav-icon { color: var(--accent); }
+.nav-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* A count, not a beacon. */
+.nav-badge {
+  margin-left: auto; min-width: 15px; padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bad) 22%, transparent);
+  color: var(--bad);
+  font-size: 9px; font-weight: 700; text-align: center; line-height: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.nav-badge.muted { background: var(--panel-3); color: var(--text-2); }
+
+.nav-caret {
+  margin-left: 2px; display: grid; place-items: center;
+  color: var(--text-3); transition: transform 0.14s ease;
+}
+.nav-caret svg { display: block; }
+
+.nav-sub-head {
+  padding: 6px 10px 5px;
+  font-size: 9px; font-weight: 700; letter-spacing: 0.11em;
+  text-transform: uppercase; color: var(--text-3);
+}
+
+/* ---- the rail (default): icons only, and the section flies out ---------- */
+.nav:not(.open) .nav-item { justify-content: center; padding: 8px 0; gap: 0; }
+.nav:not(.open) .nav-label { display: none; }
+.nav:not(.open) .nav-caret { display: none; }
+.nav:not(.open) .nav-badge {
+  position: absolute; top: 3px; right: 7px; margin: 0;
+  min-width: 14px; line-height: 14px; font-size: 8.5px;
+  background: var(--bad); color: #fff;
+}
+.nav:not(.open) .nav-sub {
+  /* Touching the rail, not floating beside it. A six-pixel gap is six pixels
+     the pointer crosses on its way to the menu, and for those pixels it is over
+     neither the section nor the flyout — so the flyout closes under the hand
+     reaching for it. */
+  position: absolute; left: 100%; top: -4px;
+  z-index: 60; min-width: 176px; padding: 4px 4px 4px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line); border-left: 0; border-radius: 0 10px 10px 0;
+  box-shadow: 8px 14px 34px rgba(0, 0, 0, 0.34);
+  opacity: 0; visibility: hidden;
+  transition: opacity 0.1s ease, visibility 0.1s;
+}
+.nav:not(.open) .nav-sec:hover .nav-sub,
+.nav:not(.open) .nav-sec:focus-within .nav-sub,
+.nav:not(.open) .nav-sec.expanded .nav-sub {
+  opacity: 1; visibility: visible; transform: translateX(0);
+}
+.nav:not(.open) .nav-sub .nav-item { justify-content: flex-start; padding: 6px 9px; }
+.nav:not(.open) .nav-sub .nav-label { display: block; }
+.nav:not(.open) .nav-sub .nav-badge {
+  position: static; margin-left: auto; background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad);
+}
+
+/* ---- the panel: labels, and one section open beneath its header --------- */
+.nav.open .nav-sub {
+  display: none;
+  margin: 1px 0 3px 17px;
+  padding-left: 9px;
+  border-left: 1px solid var(--line);
+}
+.nav.open .nav-sec.expanded .nav-sub { display: block; }
+.nav.open .nav-sec.expanded .nav-caret { transform: rotate(90deg); }
+.nav.open .nav-sub-head { display: none; }
+.nav.open .nav-sub .nav-item { padding: 5px 9px; font-size: 12px; }
+.nav.open .nav-sub .nav-item.active::before { left: -10px; }
+
+/* The one control that is not a destination. */
+.nav-toggle { margin-top: auto; color: var(--text-3); }
+.nav-toggle .nav-icon { color: var(--text-3); }
+.nav:not(.open) .nav-toggle .nav-label { display: none; }
+
+/* ---- the page itself */
+.main {
+  grid-area: main; min-width: 0;
+  overflow-y: auto; overflow-x: hidden;
+  /* The side insets are added to the gutter rather than replacing it, so a
+     phone held sideways with a notch on the left does not tuck the first
+     column of every table underneath it. */
+  padding: var(--gutter)
+           calc(var(--gutter) + var(--safe-r))
+           calc(var(--gutter) + var(--safe-b))
+           calc(var(--gutter) + var(--safe-l));
+  scroll-behavior: auto;
+  /* Momentum scrolling that stops at the ends rather than dragging the page
+     behind it — the behaviour a wrapped app needs to feel native. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+/* The density of the whole interface lives here.
+
+   Every screen is built from the same handful of primitives, so tightening the
+   primitives tightens everything at once — and keeps it consistent, which a
+   screen-by-screen pass never does. These numbers came down together after the
+   finance screen turned out to be seven and a half viewports tall for a page of
+   figures that fits in three. */
+.view { max-width: 1460px; margin: 0 auto; display: flex; flex-direction: column; gap: 11px; }
+
+/* A heading inside the page, for screens that need one above the header's. */
+.view-head { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.view-head h1 { font-size: 17px; }
+.view-head p { margin: 0; color: var(--text-3); font-size: 12px; }
+.view-head .btn-row { margin-left: auto; }
+
+/* ================================================================ cards === */
+
+/* One card. Every name on this selector is the same object wearing a different
+   label in a different view — that is the point, and adding a name here is how
+   a new screen joins the system instead of starting a sixth card. */
+.panel,
+.card,
+.loan-card,
+.scenario-card,
+.menu-item {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-sm);
+  min-width: 0;
+}
+
+.panel { padding: 12px 13px; }
+.panel > .panel-title + * { margin-top: 0; }
+
+.panel-title {
+  font-size: 13px; font-weight: 650; letter-spacing: -0.005em;
+  color: var(--text); margin-bottom: 9px;
+  display: flex; align-items: baseline; gap: 9px;
+}
+.panel-title .sub, .panel-title .tiny { font-weight: 400; color: var(--text-3); }
+
+/* Anything the card wants to say under its heading. */
+.sub { color: var(--text-2); font-size: 12.5px; }
+.tiny { font-size: 11px; }
+.tiny.muted, .sub.muted { color: var(--text-3); }
+.muted { color: var(--text-2); }
+.nowrap { white-space: nowrap; }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+p.warn, .tiny.warn, .warn { color: var(--warn); }
+
+.panel.locked, .muted-card { opacity: 0.55; }
+.panel-danger, .panel.urgent { border-color: color-mix(in srgb, var(--bad) 55%, transparent); }
+.next-step {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background:
+    radial-gradient(120% 140% at 0% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+    var(--panel);
+}
+
+.card { padding: 11px; }
+.card.clickable { cursor: pointer; transition: border-color 0.12s ease, background 0.12s ease; }
+.card.clickable:hover { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: var(--panel-2); }
+.card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.card-title { font-size: 14px; font-weight: 640; }
+.card-sub { font-size: 11.5px; color: var(--text-3); }
+
+.list { display: flex; flex-direction: column; gap: 10px; }
+
+.grid { display: grid; gap: 11px; }
+.grid > * { min-width: 0; }
+.grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.grid.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.grid.cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+/* Two columns where the first carries the argument and the second the asides. */
+.grid.split { grid-template-columns: minmax(0, 1.62fr) minmax(0, 1fr); }
+
+/* ============================================================ KPI card === */
+
+/* The signature element: a tinted tile saying which part of the company this
+   belongs to, the label, the number, and what it has done lately. */
+.kpi {
+  display: flex; align-items: center; gap: 11px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--e-sm);
+  padding: 11px 12px;
+  min-width: 0;
+}
+.kpi-tile {
+  width: 34px; height: 34px; flex: 0 0 auto;
+  border-radius: 9px; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
+.kpi-tile svg { width: 16px; height: 16px; }
+.kpi-tile.good { background: color-mix(in srgb, var(--good) 16%, transparent); border-color: color-mix(in srgb, var(--good) 30%, transparent); color: var(--good); }
+.kpi-tile.bad { background: color-mix(in srgb, var(--bad) 16%, transparent); border-color: color-mix(in srgb, var(--bad) 30%, transparent); color: var(--bad); }
+.kpi-tile.warn { background: color-mix(in srgb, var(--warn) 16%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); color: var(--warn); }
+.kpi-tile.tech { background: color-mix(in srgb, var(--tech) 16%, transparent); border-color: color-mix(in srgb, var(--tech) 30%, transparent); color: var(--tech); }
+.kpi-tile.info { background: color-mix(in srgb, var(--info) 16%, transparent); border-color: color-mix(in srgb, var(--info) 30%, transparent); color: var(--info); }
+
+.kpi-figures { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.kpi-label {
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.1em;
+  color: var(--text-3); font-weight: 650;
+}
+.kpi-value {
+  font-size: 19px; font-weight: 700; letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kpi-value.good { color: var(--good); }
+.kpi-value.bad { color: var(--bad); }
+.kpi-sub { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.kpi-sub.good { color: var(--good); }
+.kpi-sub.bad { color: var(--bad); }
+.kpi-sub.warn { color: var(--warn); }
+
+/* ==================================================== stats and meters === */
+
+.stat {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+  padding: 5px 0; border-bottom: 1px solid var(--line-soft);
+}
+.stat:last-child { border-bottom: 0; }
+.stat-label { color: var(--text-2); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.stat-value { font-weight: 640; font-variant-numeric: tabular-nums; text-align: right; }
+.stat-value.good { color: var(--good); }
+.stat-value.bad { color: var(--bad); }
+.stat-value.muted { color: var(--text-3); font-weight: 500; }
+
+.hint {
+  width: 15px; height: 15px; flex: 0 0 auto; padding: 0;
+  border: 1px solid var(--line); border-radius: 50%;
+  background: var(--panel-2); color: var(--text-3);
+  font-size: 9px; font-weight: 700; line-height: 1;
+  cursor: help; display: inline-grid; place-items: center;
+}
+.hint:hover { color: var(--accent); border-color: var(--accent); }
+
+.bar { height: 6px; background: var(--panel-3); border-radius: 999px; overflow: hidden; }
+.bar-fill {
+  height: 100%; background: var(--accent); border-radius: 999px;
+  transition: width 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.bar-fill.good { background: var(--good); }
+.bar-fill.bad { background: var(--bad); }
+.bar-fill.warn { background: var(--warn); }
+
+/* A labelled meter — the "top performing departments" shape. */
+.meter { display: flex; align-items: center; gap: 12px; padding: 7px 0; }
+.meter-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: var(--accent); }
+.meter-dot.good { background: var(--good); }
+.meter-dot.warn { background: var(--warn); }
+.meter-dot.bad { background: var(--bad); }
+.meter-dot.tech { background: var(--tech); }
+.meter-name { font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto; width: 40%; }
+.meter-bar { flex: 1 1 auto; min-width: 0; }
+.meter-value { font-size: 12px; font-weight: 640; font-variant-numeric: tabular-nums; flex: 0 0 auto; width: 40px; text-align: right; }
+
+/* ================================================= badges and statuses === */
+
+/* One badge. `.tag` is the name; everything else on this selector is the same
+   pill somewhere that used to roll its own. */
+.tag, .chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: var(--r-pill);
+  background: var(--panel-2); color: var(--text-2);
+  border: 1px solid var(--line);
+  font-size: 10.5px; font-weight: 650; letter-spacing: 0.03em;
+  white-space: nowrap; line-height: 1.5;
+}
+.tag::before, .chip.dotted::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: currentColor; flex: 0 0 auto;
+}
+.tag.plain::before { display: none; }
+.tag.good { background: color-mix(in srgb, var(--good) var(--wash), transparent); color: var(--good); border-color: color-mix(in srgb, var(--good) var(--edge), transparent); }
+.tag.bad { background: color-mix(in srgb, var(--bad) var(--wash), transparent); color: var(--bad); border-color: color-mix(in srgb, var(--bad) var(--edge), transparent); }
+.tag.warn { background: color-mix(in srgb, var(--warn) var(--wash), transparent); color: var(--warn); border-color: color-mix(in srgb, var(--warn) var(--edge), transparent); }
+.tag.accent { background: color-mix(in srgb, var(--accent) var(--wash), transparent); color: var(--accent-hot); border-color: color-mix(in srgb, var(--accent) var(--edge), transparent); }
+.tag.tech { background: color-mix(in srgb, var(--tech) var(--wash), transparent); color: var(--tech); border-color: color-mix(in srgb, var(--tech) var(--edge), transparent); }
+.tag.info { background: color-mix(in srgb, var(--info) var(--wash), transparent); color: var(--info); border-color: color-mix(in srgb, var(--info) var(--edge), transparent); }
+
+/* ============================================================== buttons === */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 0 15px; min-height: 36px;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--panel-2); color: var(--text);
+  font-size: 12.5px; font-weight: 620; cursor: pointer; white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.06s ease;
+}
+.btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.btn:hover:not(:disabled) { background: var(--panel-3); border-color: #3a414b; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn.primary {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 2px 10px rgba(255, 122, 26, 0.3);
+}
+.btn.primary:hover:not(:disabled) { background: var(--accent-hot); border-color: var(--accent-hot); }
+.btn.success { background: var(--good); border-color: var(--good); color: #04140c; }
+.btn.success:hover:not(:disabled) { filter: brightness(1.1); }
+.btn.danger {
+  background: color-mix(in srgb, var(--bad) var(--wash), transparent);
+  border-color: color-mix(in srgb, var(--bad) 42%, transparent);
+  color: var(--bad);
+}
+.btn.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 24%, transparent); }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+.btn.small { min-height: 30px; padding: 0 11px; font-size: 11.5px; }
+.btn.small svg { width: 13px; height: 13px; }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.icon-btn {
+  width: 34px; height: 34px; flex: 0 0 auto;
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--panel); color: var(--text-2);
+  cursor: pointer; display: grid; place-items: center;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn:hover { color: var(--text); background: var(--panel-2); }
+.icon-btn.active { color: var(--accent); border-color: var(--accent); }
+
+/* A pill group: tabs, filters, map modes. One control, three jobs. */
+.pill-row, .filter-row {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+}
+.pill {
+  padding: 0 13px; min-height: 32px;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: var(--panel); color: var(--text-2);
+  font-size: 11.5px; font-weight: 620; cursor: pointer; white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.pill:hover { color: var(--text); background: var(--panel-2); }
+.pill.active {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+.pill-count {
+  font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+}
+
+/* =============================================================== forms === */
+
+input[type="text"], input[type="number"], input[type="search"], select, textarea {
+  padding: 0 11px; min-height: 36px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  color: var(--text); width: 100%;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+textarea { padding: 9px 11px; }
+input::placeholder { color: var(--text-3); }
+input:hover, select:hover, textarea:hover { border-color: #3a414b; }
+input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--text-3) 50%), linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 15px, calc(100% - 10px) 15px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+label.field { display: block; margin-bottom: 12px; }
+label.field > span {
+  display: block; font-size: 9.5px; font-weight: 650; letter-spacing: 0.09em;
+  text-transform: uppercase; color: var(--text-3); margin-bottom: 5px;
+}
+.switch { display: flex; align-items: center; gap: 9px; cursor: pointer; padding: 7px 0; }
+.switch input { width: auto; min-height: 0; accent-color: var(--accent); }
+
+/* A search field with the glass in it. */
+.search { position: relative; flex: 0 1 320px; min-width: 0; }
+.search svg {
+  position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+  width: 15px; height: 15px; color: var(--text-3); pointer-events: none;
+}
+.search input { padding-left: 34px; background: var(--panel); border-radius: var(--r-pill); }
+
+/* ============================================================== tables === */
+
+.table-wrap { overflow-x: auto; max-width: 100%; margin: 0 -2px; }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th {
+  text-align: left; padding: 6px 9px;
+  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em;
+  color: var(--text-3); font-weight: 700; white-space: nowrap;
+  border-bottom: 1px solid var(--line);
+}
+td { padding: 7px 9px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+tbody tr.clickable { cursor: pointer; }
+tbody tr.clickable:hover { background: var(--panel-2); }
+/* A name with a face beside it, which is most of what a table of people is. */
+.cell-person { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.cell-person-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+/* ======================================================= rows and lists === */
+
+/* One row. Flat by default; `.row-link` makes it a button that says so. */
+.stat, .review-row, .alert-row, .news-mini {
+  min-width: 0;
+}
+
+ .clickable-row, .decision-option, .menu-item, .scenario-card {
+  width: 100%; text-align: left; cursor: pointer;
+  color: inherit; font: inherit;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.clickable-row {
+  display: block; border: 0; background: transparent;
+  border-radius: var(--r-sm); padding: 10px 8px; margin: 0 -8px;
+  border-bottom: 1px solid var(--line-soft);
+}
+.clickable-row:last-child { border-bottom: 0; }
+
+/* A table row that is itself the control. Kept apart from .clickable-row,
+   which is a block element and would collapse a table if it were applied to
+   one. */
+tr.row-clickable { cursor: pointer; transition: background 0.12s ease; }
+tr.row-clickable:hover { background: var(--panel-2); }
+tr.row-clickable:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.clickable-row:hover { background: var(--panel-2); }
+
+/* An empty section is a sentence and, where there is one, the way out of it. */
+.empty {
+  color: var(--text-3); font-size: 12.5px; margin: 0;
+  padding: 13px 14px; text-align: center;
+  border: 1px dashed var(--line); border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--panel-2) 50%, transparent);
+}
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 9px; padding: 18px 14px; text-align: center; }
+.empty-state .empty-icon {
+  width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text-3);
+}
+.empty-state .empty-icon svg { width: 18px; height: 18px; }
+.empty-state h4 { font-size: 13.5px; }
+.empty-state p { margin: 0; color: var(--text-3); font-size: 12px; max-width: 42ch; }
+
+/* ============================================================== charts === */
+
+.chart { width: 100%; height: 150px; display: block; }
+.chart-legend { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+
+/* ====================================================== alerts & advice === */
+
+.alert-row { display: flex; gap: 10px; align-items: flex-start; padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.alert-row:last-child { border-bottom: 0; }
+.alert-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: 0 0 auto; background: var(--text-3); }
+.alert-dot.warning { background: var(--warn); }
+.alert-dot.critical { background: var(--bad); }
+.alert-dot.success { background: var(--good); }
+.alert-heading {
+  margin: 14px 0 4px; padding-bottom: 5px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.alert-heading:first-child { margin-top: 0; }
+.alert-heading.critical { color: var(--bad); }
+.alert-heading.warning { color: var(--warn); }
+.alert-heading.success { color: var(--good); }
+.alert-go { margin-top: 3px; font-size: 11px; color: var(--accent-hot); font-weight: 600; }
+.alert-title { font-size: 12.5px; font-weight: 640; }
+.alert-detail { font-size: 11.5px; color: var(--text-2); }
+.alert-time { font-size: 10px; color: var(--text-3); margin-left: auto; white-space: nowrap; }
+.decision-option {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--panel-2); color: var(--text);
+}
+.decision-option:hover:not(.disabled) { border-color: var(--accent); background: var(--panel-3); }
+.decision-option.disabled { opacity: 0.5; cursor: not-allowed; }
+.decision-option-label { font-size: 12.5px; font-weight: 640; }
+.decision-option-detail { font-size: 11.5px; color: var(--text-2); }
+.decision-option.disabled .decision-option-detail { color: var(--bad); }
+.news-headline { font-size: 13px; font-weight: 640; line-height: 1.35; }
+.news-body { font-size: 11.5px; color: var(--text-2); margin-top: 2px; }
+.news-mini { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+.news-mini:last-of-type { border-bottom: 0; }
+
+/* ============================================================= reviews === */
+
+.review-summary { display: flex; align-items: center; gap: 16px; padding-bottom: 12px; margin-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
+.review-score { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: -0.03em; }
+.review-stars { font-size: 14px; color: var(--warn); letter-spacing: 2px; }
+.review-row { display: flex; gap: 11px; align-items: flex-start; padding: 9px 0; }
+.review-row + .review-row { border-top: 1px solid var(--line-soft); }
+.review-row-stars { font-size: 11px; color: var(--warn); letter-spacing: 1px; flex: 0 0 auto; white-space: nowrap; margin-top: 2px; }
+.review-row-stars.good { color: var(--good); }
+.review-row-stars.bad { color: var(--bad); }
+.review-text { font-size: 12px; color: var(--text); line-height: 1.45; }
+
+/* =============================================================== modal === */
+
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(3, 6, 14, 0.76);
+  display: grid; place-items: center;
+  padding-top: var(--safe-t); padding-bottom: var(--safe-b);
+  padding-left: var(--safe-l); padding-right: var(--safe-r);
+  /* place-items:center leaves the track auto-sized, which means a dialog
+     holding a wide table is sized by the table rather than by the screen and
+     the far edge of it ends up clipped and unreachable on a phone. Capping the
+     track at the overlay keeps every dialog inside the window. */
+  grid-template-columns: minmax(0, 1fr);
+  padding: 16px;
+  backdrop-filter: blur(4px);
+  animation: overlay-in 0.14s ease;
+}
+@keyframes overlay-in { from { opacity: 0; } to { opacity: 1; } }
+.modal-card {
+  width: 100%; max-width: 620px; min-width: 0;
+  /* dvh, not vh: on a phone the browser's own chrome slides in and out, and a
+     dialog measured against the tallest the viewport ever gets hangs off the
+     bottom for as long as the toolbar is showing. */
+  max-height: calc(100dvh - 32px - var(--safe-t) - var(--safe-b));
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--e-lg);
+  display: flex; flex-direction: column;
+  animation: modal-in 0.16s cubic-bezier(0.2, 0, 0.2, 1);
+}
+@keyframes modal-in { from { opacity: 0; transform: translateY(8px) scale(0.99); } to { opacity: 1; transform: none; } }
+.modal-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.modal-head h2 { font-size: 15.5px; }
+.modal-body { padding: 13px 14px; overflow-y: auto; min-width: 0; }
+.modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); }
+.modal-footer:empty { display: none; }
+.confirm-text { margin: 0; color: var(--text-2); }
+
+/* =============================================================== toast === */
+
+.toast {
+  /* Centred with auto margins rather than left:50% + translate: a half-width
+     transform pushes the layout box past the right edge, and on a phone that
+     silently widens the whole layout viewport. */
+  position: fixed; left: 16px; right: 16px; bottom: 24px;
+  margin: 0 auto; width: fit-content; transform: translateY(16px);
+  z-index: 80; max-width: min(520px, calc(100vw - 32px));
+  padding: 12px 18px; border-radius: var(--r-md);
+  background: var(--panel-2); border: 1px solid var(--line);
+  box-shadow: var(--e-lg); font-size: 12.5px;
+  opacity: 0; pointer-events: none; transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast.good { border-color: color-mix(in srgb, var(--good) 50%, transparent); }
+.toast.bad { border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+
+/* ============================================================ tutorial === */
+
+.tutorial {
+  position: fixed; right: 20px; bottom: 20px; z-index: 50;
+  width: min(340px, calc(100vw - 32px));
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--r-lg); box-shadow: var(--e-lg); padding: 16px;
+}
+.tutorial h4 { font-size: 13.5px; margin-bottom: 6px; }
+.tutorial p { margin: 0 0 12px; font-size: 12px; color: var(--text-2); }
+.tutorial-step { font-size: 9.5px; color: var(--text-3); letter-spacing: 0.1em; text-transform: uppercase; font-weight: 650; }
+
+/* ================================================== progress and levels === */
+
+.next-step-label { font-size: 9.5px; font-weight: 700; letter-spacing: 0.12em; color: var(--accent-hot); text-transform: uppercase; }
+.next-step-title { margin: 5px 0 2px; font-size: 17px; line-height: 1.22; letter-spacing: -0.02em; }
+.next-step-why { margin: 0 0 8px; color: var(--text-2); font-size: 12.5px; }
+.next-step-foot { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.next-step-reward { color: var(--text-3); font-size: 11.5px; flex: 1 1 auto; min-width: 0; }
+.unlock-list { margin: 6px 0 12px; padding-left: 18px; color: var(--text-2); font-size: 12.5px; }
+.unlock-list li { margin-bottom: 3px; }
+
+.ladder-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; padding: 7px 0; font-size: 12px;
+}
+.ladder-row + .ladder-row { border-top: 1px solid var(--line-soft); }
+.ladder-row.done .ladder-name { color: var(--text-3); }
+.ladder-row.here {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-radius: var(--r-sm); padding: 8px 11px; border-top: 0;
+}
+.ladder-row.here .ladder-name { color: var(--text); font-weight: 650; }
+.ladder-name { color: var(--text-2); }
+.ladder-state { color: var(--text-3); text-align: right; }
+.ladder-row.here .ladder-state { color: var(--accent-hot); font-weight: 650; }
+.ladder-state.bad { color: var(--warn); font-weight: 650; }
+.ladder-n {
+  flex: 0 0 26px; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--panel-3); color: var(--text-2);
+  font-size: 11px; font-weight: 700;
+}
+.ladder-row.reached .ladder-n { background: var(--accent); color: #fff; }
+
+.award {
+  padding: 11px 12px; border: 1px solid var(--line-soft);
+  border-radius: var(--r-md); opacity: 0.45; min-width: 0;
+  background: var(--panel-2);
+}
+.award.earned { opacity: 1; border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) var(--wash-soft), transparent); }
+.award-name { font-weight: 640; font-size: 12.5px; }
+
+
+/* ========================================================== responsive === */
+
+/* Reflow, never shrink. The layout changes shape three times: the sidebar
+   narrows to icons, then leaves for a bottom bar, then the page goes to one
+   column. */
+
+.mobile-nav { display: none; }
+
+/* ---- 1366 laptop: tighter gutters buy back the column the content needs.
+        The sidebar is already a rail, so there is nothing to take from it. */
+@media (max-width: 1400px) {
+  :root { --gutter: 20px; --nav-w-open: 200px; }
+}
+
+/* ---- 1180: an opened sidebar is a panel over the page rather than a column
+        beside it, because below this width the page cannot spare two hundred
+        pixels and a menu that squeezes the content is worse than one that
+        covers it for a moment. */
+@media (max-width: 1180px) {
+  .shell:has(.nav.open) { grid-template-columns: var(--nav-w) 1fr; }
+  .nav.open {
+    position: fixed; top: calc(var(--header-h) + var(--safe-t)); left: 0; bottom: 0;
+    width: var(--nav-w-open); z-index: 70;
+    box-shadow: 18px 0 40px rgba(0, 0, 0, 0.3);
+  }
+  .grid.split { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+}
+
+/* ---- 1024 tablet: the two-column page becomes one, and the KPI row halves. */
+@media (max-width: 1024px) {
+  .grid.split { grid-template-columns: minmax(0, 1fr); }
+  .grid.cols-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hud .metric:nth-child(n + 3) { display: none; }
+}
+
+/* ---- 900 phone/tablet: no rail at all. A bottom bar instead, because at this
+        width a drawer hides navigation behind a tap the player has to learn. */
+@media (max-width: 900px) {
+  :root { --header-h: 56px; --gutter: 14px; }
+  .shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: calc(var(--header-h) + var(--safe-t)) 1fr auto;
+    grid-template-areas: "header" "main" "mobilenav";
+  }
+  .brand { display: none; }
+  .nav { display: none; }
+  .main { padding: 14px 14px 10px; }
+  .grid.cols-5, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.cols-2 { grid-template-columns: 1fr; }
+  .page-title { min-width: 104px; }
+  .page-title p { display: none; }
+  .search { display: none; }
+  /* One figure, not three: cash is the one worth carrying on every screen. */
+  .hud { flex: 0 1 auto; }
+  .hud .metric:nth-child(n + 2) { display: none; }
+
+  /* Seven tabs that fit the width, and a sheet above them for what is inside
+     one. The old bar carried nineteen items and scrolled sideways, which put
+     most of the game somewhere the player could not see it was. */
+  .mobile-nav {
+    grid-area: mobilenav; position: relative; z-index: 40;
+    display: block;
+    background: var(--bg-2); border-top: 1px solid var(--line);
+  }
+  .mobile-nav .nav-bar {
+    display: flex;
+    padding: 4px calc(4px + var(--safe-r)) calc(4px + var(--safe-b)) calc(4px + var(--safe-l));
+  }
+  .mobile-nav .nav-item {
+    flex: 1 1 0; min-width: 0; flex-direction: column; gap: 2px;
+    padding: 6px 1px; font-size: 8.5px; text-align: center;
+    justify-content: flex-start; border-radius: 8px;
+  }
+  .mobile-nav .nav-label { display: block; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .mobile-nav .nav-item.active { background: color-mix(in srgb, var(--accent) var(--wash), transparent); }
+  .mobile-nav .nav-item.active::before { display: none; }
+  .mobile-nav .nav-item.expanded { background: var(--panel); color: var(--text); }
+  .mobile-nav .nav-icon svg { width: 18px; height: 18px; }
+  .mobile-nav .nav-badge {
+    position: absolute; top: 2px; right: calc(50% - 17px); margin: 0;
+    min-width: 14px; line-height: 14px; font-size: 8.5px;
+    background: var(--bad); color: #fff;
+  }
+  .mobile-nav .nav-caret { display: none; }
+
+  .nav-sheet {
+    position: absolute; left: 0; right: 0; bottom: 100%;
+    background: var(--bg-2); border-top: 1px solid var(--line);
+    box-shadow: 0 -14px 34px rgba(0, 0, 0, 0.3);
+    padding: 6px calc(6px + var(--safe-r)) 8px calc(6px + var(--safe-l));
+  }
+  .nav-sheet-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 2px 4px 6px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.11em;
+    text-transform: uppercase; color: var(--text-3);
+  }
+  .nav-sheet-body { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px; }
+  .nav-sheet-body .nav-item {
+    flex-direction: row; gap: 9px; padding: 9px 10px;
+    font-size: 12.5px; text-align: left; justify-content: flex-start;
+  }
+  .nav-sheet-body .nav-badge { position: static; margin-left: auto; background: color-mix(in srgb, var(--bad) 22%, transparent); color: var(--bad); }
+
+  .tutorial { left: 12px; right: 12px; bottom: 12px; width: auto; }
+  .panel { padding: 15px; }
+  .kpi { padding: 14px; gap: 12px; }
+  .kpi-tile { width: 36px; height: 36px; border-radius: 10px; }
+  .kpi-tile svg { width: 17px; height: 17px; }
+  .kpi-value { font-size: 20px; }
+}
+
+/* ---- 620 phone: one column everywhere, and the tallest dialogs get the
+        screen back. */
+@media (max-width: 620px) {
+  /* Two across, not one. Four KPI cards stacked into a column is four
+     screens of scrolling to read four numbers; side by side they are one
+     glance, and at 480px wide there is room for two. */
+  .grid.cols-5, .grid.cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .view-head h1 { font-size: 17px; }
+  .page-title h1 { font-size: 16px; }
+  .modal-card { max-height: calc(100dvh - 16px - var(--safe-t) - var(--safe-b)); }
+  .modal-body, .modal-head, .modal-footer { padding-left: 14px; padding-right: 14px; }
+  .welcome-shell { padding: 24px 14px 40px; }
+  .welcome-title { font-size: 25px; }
+  .welcome-mark { width: 44px; height: 44px; }
+  .scenario-grid { grid-template-columns: 1fr; }
+  .meter-name { width: 34%; }
+
+  /* At this width the header cannot carry a figure as well as the name of the
+     screen, the clock and the alerts — it overflowed the viewport by the width
+     of the bell. Cash is the first card on the dashboard, which is one tap
+     away, so the header gives the room to the things only it has. */
+  .topbar { gap: 8px; padding: var(--safe-t) 12px 0 12px; }
+  .hud { display: none; }
+  .speed-group { padding: 2px; flex: 0 1 auto; min-width: 0; }
+
+  /* The speed control is five buttons in a row, and five forty-four pixel
+     buttons plus the screen name plus the alert bell is wider than a phone —
+     it pushed the bell clean off the side. A segmented control is the one
+     place where a narrower target is still a reliable one: the buttons sit
+     shoulder to shoulder, there is nothing else nearby to hit by mistake, and
+     they keep the full height. So the height stays and the width gives. */
+  .speed-btn { min-width: 34px; height: 40px; font-size: 11px; }
+  .icon-btn { min-width: 40px; min-height: 40px; }
+}
+
+/* ==================================================== touch targets === */
+
+/* A finger is not a mouse pointer. Anything that can be tapped is given enough
+   of the screen to be tapped reliably — the usual figure is about forty-four
+   pixels square — and enough room around it that the wrong thing is not hit.
+   Scoped to coarse pointers so a desktop keeps its compact, dense controls,
+   which is the whole reason it can show more at once. */
+
+@media (pointer: coarse) {
+  .btn, .btn.small, .chip, .tab, .tool-btn, .seg-btn, .icon-btn,
+  .map-mode, .speed-btn, .nav-item, .mobile-nav .nav-item {
+    min-height: 44px;
+  }
+  .btn, .btn.small { padding-inline: 16px; }
+  .chip, .tab { padding: 11px 15px; }
+  .icon-btn, .speed-btn { min-width: 44px; }
+  .speed-group { padding: 3px; gap: 3px; }
+
+  /* Rows and cards that do something when tapped get the same treatment. */
+  .clickable-row, .decision-option, .menu-item { min-height: 46px; }
+  tr.row-clickable td { padding-top: 12px; padding-bottom: 12px; }
+
+  /* Space between them, so the neighbour is not what gets hit. */
+  .btn-row { gap: 10px; }
+  .pill-row, .filter-row { gap: 8px; }
+
+  /* Native controls are worth the extra height too: a select that is thirty
+     pixels tall is a select that gets missed. */
+  input[type="text"], input[type="number"], input[type="search"], select, textarea {
+    min-height: 44px;
+  }
+
+  /* Nothing may be reachable by hover alone. Hover rules elsewhere are
+     decoration on top of something already visible; this is the guard that
+     says so out loud, and the design check enforces it. */
+  .hint { min-width: 32px; min-height: 32px; }
+}
+
+/* ================================================== short, not small === */
+
+/* A phone held sideways is about a thousand pixels across and under five
+   hundred tall. Every breakpoint above this one asks how *wide* the screen is, a laptop's padding and a laptop's dialogs, and then two
+   thirds of the screen is chrome. These rules ask the other question.
+
+   The rail is right here, and so is a denser grid: the room that is missing is
+   vertical, so what has to go is vertical. */
+
+@media (max-height: 560px) and (orientation: landscape) and (pointer: coarse) {
+  :root {
+    --header-h: 46px;
+    --gutter: 10px;
+    --s-4: 12px;
+    --s-5: 14px;
+  }
+
+  /* The bottom bar costs sixty pixels of a four-hundred-and-eighty pixel
+     screen. Sideways there is room at the side instead, so navigation goes
+     back to the rail and the height comes back to the game. */
+  .shell {
+    grid-template-columns: 62px 1fr;
+    grid-template-rows: calc(var(--header-h) + var(--safe-t)) 1fr;
+    grid-template-areas: "brand header" "nav main";
+  }
+  .brand { display: flex; justify-content: center; padding: var(--safe-t) 4px 0 calc(4px + var(--safe-l)); }
+  .brand > div:not(.brand-mark) { display: none; }
+  .brand-mark { width: 26px; height: 26px; border-radius: 8px; }
+  /* Landscape on a phone: the rail comes back, always as a rail — there is no
+     vertical room to spend on labels and the flyouts still reach everything. */
+  .nav, .nav.open { display: flex; position: static; width: auto; box-shadow: none; padding: 4px 4px calc(4px + var(--safe-b)) calc(4px + var(--safe-l)); }
+  .nav.open .nav-item { justify-content: center; padding: 6px 0; gap: 0; }
+  .nav.open .nav-label, .nav-label { display: none; }
+  .nav.open .nav-caret { display: none; }
+  .nav.open .nav-sub, .nav .nav-sub {
+    display: block; position: absolute; left: 100%; top: -4px;
+    z-index: 60; min-width: 168px; margin: 0; padding: 4px 4px 4px 10px;
+    background: var(--bg-2); border: 1px solid var(--line); border-left: 1px solid var(--line);
+    border-radius: 10px; box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34);
+    opacity: 0; visibility: hidden;
+  }
+  .nav .nav-sec:hover .nav-sub, .nav .nav-sec:focus-within .nav-sub, .nav .nav-sec.expanded .nav-sub {
+    opacity: 1; visibility: visible;
+  }
+  .nav .nav-sub .nav-item { justify-content: flex-start; padding: 7px 9px; }
+  .nav .nav-sub .nav-label { display: block; }
+  .nav .nav-sub-head { display: block; }
+  .mobile-nav { display: none; }
+
+  /* The header carries the same things, in less height. */
+  .page-title h1 { font-size: 15px; }
+  .page-title p { display: none; }
+   .search { display: none; }
+  .hud { gap: 12px; }
+  .hud .metric:nth-child(n + 3) { display: none; }
+  .metric-value { font-size: 13px; }
+  .metric-label { font-size: 8.5px; }
+
+  /* Sideways there is width to spend, so the cards go back to a row rather
+     than stacking into a column that has to be scrolled past. */
+  .grid { gap: 10px; }
+  .grid.cols-4, .grid.cols-5 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid.cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid.split { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+  .view { gap: 10px; }
+  .panel { padding: 12px; }
+  .panel-title { margin-bottom: 8px; }
+  .kpi { padding: 10px; gap: 10px; }
+  .kpi-tile { width: 30px; height: 30px; border-radius: 9px; }
+  .kpi-value { font-size: 17px; }
+  .kpi-label { font-size: 9px; }
+  .view-head h1 { font-size: 16px; }
+  .chart { height: 112px; }
+
+  /* A dialog has to fit in what is left, so it gives up its padding before it
+     gives up its content. */
+  .modal-card { max-height: calc(100dvh - 12px - var(--safe-t) - var(--safe-b)); max-width: 680px; }
+  .modal-head, .modal-footer { padding: 9px 14px; }
+  .modal-body { padding: 12px 14px; }
+  .modal-head h2 { font-size: 14px; }
+
+  .tutorial { bottom: 8px; right: 8px; left: auto; width: 300px; }
+}
+
+/* A short window on a desktop — a laptop with a tall dock, a wrapped app — is
+   the same problem without the touch screen, so it gets the compaction but
+   keeps its full sidebar. */
+@media (max-height: 620px) and (min-width: 901px) and (pointer: fine) {
+  :root { --header-h: 52px; }
+  .page-title p { display: none; }
+  .modal-card { max-height: calc(100dvh - 16px); }
+  .chart { height: 126px; }
+}
+
+/* ==================================== tables become cards on a phone === */
+
+/* A table is columns of related numbers, read across. That reading stops
+   working somewhere around five columns on a four-hundred-pixel screen: the
+   columns are too narrow to hold their values, and scrolling sideways means
+   the row headings go out of view exactly when they are needed.
+
+   So below this width the same markup is laid out as one card per row, with
+   each value beside the name of its own column — the name comes from the
+   `data-label` the table builder puts on every cell. Nothing is hidden and no
+   second component exists; the table simply has two shapes.
+
+   Tables that are genuinely a grid — a matrix of figures where the shape is
+   the point — opt out with `.table-wrap.grid-table`. */
+
+@media (max-width: 620px) {
+  .table-wrap:not(.grid-table) { overflow-x: visible; }
+  .table-wrap:not(.grid-table) table,
+  .table-wrap:not(.grid-table) tbody,
+  .table-wrap:not(.grid-table) tr,
+  .table-wrap:not(.grid-table) td { display: block; width: auto; }
+  .table-wrap:not(.grid-table) thead { display: none; }
+
+  .table-wrap:not(.grid-table) tr {
+    border: 1px solid var(--line); border-radius: var(--r-md);
+    background: var(--panel-2); padding: 4px 12px; margin-bottom: 9px;
+  }
+  .table-wrap:not(.grid-table) tr:last-child { margin-bottom: 0; }
+
+  .table-wrap:not(.grid-table) td {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 14px; padding: 8px 0; border: 0;
+    border-bottom: 1px solid var(--line-soft);
+    text-align: right;
+  }
+  .table-wrap:not(.grid-table) td:last-child { border-bottom: 0; }
+  .table-wrap:not(.grid-table) td::before {
+    content: attr(data-label);
+    flex: 0 0 auto; text-align: left;
+    font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.09em;
+    color: var(--text-3); font-weight: 600;
+  }
+  /* A cell with no column name — an actions cell — spans the card instead of
+     pretending to be a labelled value. */
+  .table-wrap:not(.grid-table) td:not([data-label]) { justify-content: flex-end; }
+
+  /* The first column is the name of the thing: it is the card's heading. */
+  .table-wrap:not(.grid-table) td:first-child {
+    font-weight: 650; font-size: 13.5px; color: var(--text);
+    padding-top: 10px;
+  }
+  .table-wrap:not(.grid-table) td:first-child::before { display: none; }
+  .table-wrap:not(.grid-table) td:first-child { justify-content: flex-start; text-align: left; }
+
+  .table-wrap:not(.grid-table) tr.row-clickable { cursor: pointer; }
+  .table-wrap:not(.grid-table) tr.row-clickable:active { background: var(--panel-3); }
+}
+
+/* ---- 400 and under: a small phone, where two cards side by side stop being
+        readable and the numbers start to wrap. */
+@media (max-width: 400px) {
+  .grid.cols-5, .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
+  /* The name of the screen is the thing that can be shortened: the clock and
+     the alerts cannot say less than they say. */
+  .page-title { min-width: 56px; }
+  .topbar { gap: 6px; padding-inline: 10px; }
+  .speed-btn { min-width: 30px; }
+  .kpi-value { font-size: 19px; }
+}
+
+/* Somebody who has asked for less movement gets less movement. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
