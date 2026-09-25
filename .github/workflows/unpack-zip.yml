@@ -3,8 +3,6 @@ name: Unpack dealership ZIP
 on:
   push:
     branches: [main]
-    paths:
-      - "Car-Dealership-Manager-Tycoon-v4.zip"
   workflow_dispatch:
 
 permissions:
