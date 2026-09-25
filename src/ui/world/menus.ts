@@ -12,11 +12,13 @@ import { money, moneySigned } from '../../sim/format';
 import { ARCHETYPE_BY_ID, PREP_BY_ID, ROLE_BY_ID } from '../../data/game';
 import { OBJ_BY_ID, ZONE_BY_CODE } from '../../data/lot';
 import { absHour, activeLocation, vehicleName } from '../../sim/state';
-import { canTestDrive, customerNeeds, interestLabel, matchScore, onShow, recommendations, recommendCar, talkTo } from '../../sim/customers';
-import { conditionLabel, knownCondition, suggestedPrice, totalCost } from '../../sim/market';
+import { assignSeller, canTestDrive, customerMood, customerNeeds, interestLabel, matchScore, onShow, recommendations, recommendCar, talkTo } from '../../sim/customers';
+import { conditionGrade, conditionLabel, demandLabel, demandScore, knownCondition, suggestedPrice, totalCost } from '../../sim/market';
 import { listVehicle, quickSell, unlistVehicle, wholesalePrice } from '../../sim/trading';
 import { prepActive } from '../../sim/vehicles';
-import { canPromote, promote, train, trainingCost } from '../../sim/staff';
+import { canPromote, promote, skillOf, titleOf } from '../../sim/staff';
+import { SKILL_NAMES } from '../../data/game';
+import { currentTask, openEmployee } from '../views/staff';
 import { footprint, lotStats, slotKindOf, stationName, zoneAt } from '../../sim/lot';
 import type { ZoneCode } from '../../sim/types';
 import { openVehicle } from '../modals/vehicle';
@@ -39,6 +41,11 @@ export interface WorldActions {
   panel: (id: string) => void;
   build: (category?: string) => void;
   animateTestDrive: (v: Vehicle) => void;
+}
+
+function demandText(d: number): string {
+  const l = demandLabel(d);
+  return `${l.tone === 'good' ? '🔥 ' : l.tone === 'bad' || l.tone === 'warn' ? '❄️ ' : ''}${l.label}`;
 }
 
 /** Talk results are remembered for as long as the customer is here. */
@@ -99,16 +106,26 @@ function vehicleMenu(a: WorldActions, loc: Location, v: Vehicle): HTMLElement {
   const wanted = s.customers.find((c) => c.vehicleId === v.id && (c.status === 'waiting' || c.status === 'negotiating'));
   const job = v.prep[0];
   const mode = prepActive(s, v);
+  const interested = s.customers.filter((c) => c.vehicleId === v.id && (c.status === 'waiting' || c.status === 'negotiating'));
   const el = h('div', { class: 'wm' },
     head('🚗', vehicleName(v), `${v.trim} · ${Math.round(v.mileage / 1000)}k km · ${where ? { parking: 'on the lot', display: 'in the showroom', storage: 'in storage', lift: 'on a lift', bay: 'in the detailing bay', floor: 'parked by hand' }[where] : 'parked on the street'}`, statusTag(v.status)),
     facts(
-      ['Asking', v.askingPrice ? money(v.askingPrice) : '—'],
+      ['Asking', v.askingPrice ? money(v.askingPrice) : `~${money(suggestedPrice(s, v))}`],
+      ['Bought for', money(v.purchasePrice)],
       ['Invested', money(cost)],
-      ['Margin', v.askingPrice ? moneySigned(v.askingPrice - cost) : '—', v.askingPrice - cost >= 0 ? 'good' : 'bad'],
-      ['Condition', `${Math.round(cond)} · ${conditionLabel(cond).label}`],
+      ['Margin', moneySigned((v.askingPrice || suggestedPrice(s, v)) - cost), (v.askingPrice || suggestedPrice(s, v)) - cost >= 0 ? 'good' : 'bad'],
+      ['Condition', `${Math.round(cond)} · ${conditionGrade(v)}`],
       ['Presentation', `${Math.round(v.presentation)}`],
       ['In stock', `${v.daysInStock} days`],
+      ['Demand', demandText(demandScore(s, v))],
+      ['Interest', `${interested.length} customer${interested.length === 1 ? '' : 's'}`, interested.length ? 'good' : ''],
     ));
+  if (v.options.length || v.certified || v.demo || v.boughtBy) el.appendChild(h('div', { class: 'wm-chips' },
+    ...v.options.slice(0, 6).map((o) => h('span', { class: 'tag plain', text: o })),
+    v.certified ? h('span', { class: 'tag good', text: '✔ Certified' }) : null,
+    v.demo ? h('span', { class: 'tag info', text: 'Demo car' }) : null,
+    v.boughtBy ? h('span', { class: 'tag plain', text: `🔎 found by ${s.employees.find((e) => e.id === v.boughtBy)?.name.split(' ')[0] ?? 'a buyer'}` }) : null));
+  void conditionLabel;
   if (job) {
     const def = PREP_BY_ID[job.actionId];
     el.appendChild(h('div', { class: 'wm-job' }, h('span', { text: `${def?.icon ?? '🔧'} ${def?.name ?? 'Work'} · ${mode === 'working' ? 'being worked on' : mode === 'waiting' ? 'waiting for a free bay' : 'outsourced'}` }),
@@ -148,12 +165,24 @@ function customerMenu(a: WorldActions, loc: Location, c: Customer): HTMLElement 
   const il = interestLabel(c.interest);
   const el = h('div', { class: 'wm' },
     head(arche.icon, c.name, `${arche.name} · ${c.channel === 'Online' ? 'saw you online' : c.campaignId ? 'saw your advert' : 'walk-in'}`, h('span', { class: `tag ${il.tone}`, text: il.label })));
+  const mood = customerMood(s, c);
+  const client = c.clientId ? s.clients.find((x) => x.id === c.clientId) : undefined;
+  const appt = c.appointment ? s.appointments.find((x) => x.id === c.appointment) : undefined;
+  const best = recommendations(s, c)[0];
+  el.appendChild(h('div', { class: `wm-mood ${mood}` }, h('span', { text: mood === 'green' ? '🟢' : mood === 'amber' ? '🟡' : '🔴' }), h('span', { text: mood === 'green' ? 'Keen to buy' : mood === 'amber' ? 'Doubting' : 'About to leave' })));
   el.appendChild(facts(
     ['Looking at', v ? vehicleName(v) : '—'],
     ['Asking', v ? money(v.askingPrice) : '—'],
+    ['Budget', c.talked ? `~${money(Math.round(c.budget / 500) * 500)}` : 'talk to find out'],
+    ['Finance', c.wantsFinance ? `wants monthly (≤ ${money(c.monthlyLimit ?? 0)}/mo)` : c.talked ? 'pays cash' : '?'],
+    ['Household', c.household ?? '—'],
+    ['Brands', c.favBrands?.length ? c.favBrands.slice(0, 2).join(', ') : 'open'],
     ['Patience', c.status === 'negotiating' ? 'talking to you' : hoursLeft <= 1 ? 'leaving soon!' : `~${hoursLeft} h`, hoursLeft <= 1 ? 'bad' : ''],
     ['Test drive', c.testDrive ? 'done' : 'not yet'],
+    ['Appointment', appt ? `${appt.title.replace(/^\S+\s/, '')} ${String(Math.floor(appt.start)).padStart(2, '0')}:${appt.start % 1 ? '30' : '00'}` : 'walk-in'],
+    ['History', client ? `${client.purchases} car${client.purchases === 1 ? '' : 's'} · ${client.satisfaction.toFixed(1)}★` : 'new customer'],
   ));
+  if (best && best.v.id !== v?.id) el.appendChild(h('button', { class: 'wm-note clickable', on: { click: () => a.select({ kind: 'vehicle', id: best.v.id }) } }, `💡 Might buy: ${vehicleName(best.v)} (${Math.round(best.score * 100)}% match)`));
   if (c.tradeIn) el.appendChild(h('div', { class: 'wm-note', text: `Has a trade-in: ${vehicleName(c.tradeIn)}` }));
   const known = notes.get(c.id);
   if (known) el.appendChild(h('ul', { class: 'wm-needs' }, ...known.map((line) => h('li', { text: line }))));
@@ -179,6 +208,7 @@ function customerMenu(a: WorldActions, loc: Location, c: Customer): HTMLElement 
   const td = canTestDrive(s, c);
   actions.appendChild(btn('Test drive', () => openTestDrive(a.ctx, c.id, (car) => a.animateTestDrive(car), () => a.redraw()), '', 'key', !td.ok, td.reason));
   actions.appendChild(btn('Recommend', () => { showRecs = showRecs === c.id ? null : c.id; a.redraw(); }, '', 'swap', c.status !== 'waiting'));
+  if (c.status === 'waiting') actions.appendChild(btn('Assign advisor', () => { a.ctx.act(assignSeller(s, c.id), { sound: 'success' }); a.redraw(); }, '', 'people'));
   if (v) actions.appendChild(btn('Their car', () => a.select({ kind: 'vehicle', id: v.id }), 'ghost', 'car'));
   el.appendChild(actions);
   // How well does their current car fit?
@@ -193,21 +223,29 @@ function staffMenu(a: WorldActions, loc: Location, e: Employee): HTMLElement {
   const s = a.ctx.state;
   const role = ROLE_BY_ID[e.role];
   const station = e.stationId ? loc.lot.objects.find((o) => o.id === e.stationId) : undefined;
+  const main = role.skill;
+  const top = (['sales', 'negotiation', 'finance', 'service', 'technical', 'ev', 'luxury', 'management', 'speed', 'buying', 'appraisal', 'detail'] as const)
+    .filter((k) => k !== main).map((k) => ({ k, v: skillOf(e, k) })).sort((x, y) => y.v - x.v).slice(0, 2);
   const el = h('div', { class: 'wm' },
-    head(role.icon, e.name, `${role.name} · level ${e.level} · ${e.specialization}`, h('span', { class: `tag ${e.morale >= 60 ? 'good' : e.morale >= 35 ? 'warn' : 'bad'}`, text: `Morale ${Math.round(e.morale)}` })));
+    head(role.icon, e.name, `${titleOf(e)} · level ${e.level} · ${e.specialization}`, h('span', { class: `tag ${e.morale >= 60 ? 'good' : e.morale >= 35 ? 'warn' : 'bad'}`, text: `😊 ${Math.round(e.morale)}` })));
+  el.appendChild(h('div', { class: 'pc-task busy', text: currentTask(a.ctx, e) }));
   el.appendChild(facts(
-    ['Skill', `${Math.round(e.skill)}`],
+    [SKILL_NAMES[main], `${Math.round(skillOf(e, main))}`],
+    ...top.map((t) => [SKILL_NAMES[t.k], `${Math.round(t.v)}`] as [string, string]),
+    ['Performance', `${Math.round(e.performance ?? 50)}/100`, (e.performance ?? 50) >= 60 ? 'good' : (e.performance ?? 50) < 40 ? 'bad' : ''],
+    ['Stress', `${Math.round(e.stress ?? 0)}/100`, (e.stress ?? 0) > 70 ? 'bad' : ''],
     ['Salary', `${money(e.salary)}/mo`],
     ['Works at', station ? OBJ_BY_ID[station.defId]?.name ?? '—' : 'nowhere — needs a workstation', station ? '' : 'bad'],
-    ['Deals closed', `${e.dealsClosed}`],
-    ['Status', e.trainingDaysLeft > 0 ? `training (${e.trainingDaysLeft}d)` : 'working'],
   ));
+  const today = s.appointments.filter((x) => x.staffId === e.id && x.day === s.day && x.status !== 'cancelled' && x.status !== 'done').sort((x, y) => x.start - y.start).slice(0, 3);
+  if (today.length) el.appendChild(h('div', { class: 'mini-plan' }, ...today.map((x) => h('div', { class: `mini-appt ${x.kind} ${x.status}` }, h('span', { class: 'num', text: `${String(Math.floor(x.start)).padStart(2, '0')}:${x.start % 1 ? '30' : '00'}` }), h('span', { text: `${x.title} · ${x.vehicle}` })))));
   if (!station) el.appendChild(h('div', { class: 'wm-note bad', text: `Without ${stationName(e.role)} ${e.name.split(' ')[0]} works at 60% effectiveness. Build one.` }));
   const actions = h('div', { class: 'wm-actions' });
-  actions.appendChild(btn(`Train · ${money(trainingCost(e))}`, () => { a.ctx.act(train(s, e.id), { sound: 'buy' }); a.redraw(); }, '', 'upgrade', e.trainingDaysLeft > 0));
+  actions.appendChild(btn('Profile', () => openEmployee(a.ctx, e.id), 'primary', 'people'));
   if (canPromote(e)) actions.appendChild(btn('Promote', () => { a.ctx.act(promote(s, e.id)); a.redraw(); }, 'primary', 'level'));
-  if (!station) actions.appendChild(btn('Build a workstation', () => a.build(e.role === 'sales' || e.role === 'mechanic' || e.role === 'detailer' ? 'work' : 'zones'), 'primary', 'hammer'));
-  actions.appendChild(btn('Staff', () => a.panel('staff'), 'ghost', 'people'));
+  if (!station) actions.appendChild(btn('Build a workstation', () => a.build('staff'), 'primary', 'hammer'));
+  actions.appendChild(btn('Planning', () => a.ctx.go(['mechanic', 'technician', 'detailer', 'prep'].includes(e.role) ? 'service' : 'people', { tab: 'planning' }), 'ghost', 'clock'));
+  if (e.role === 'buyer' || e.role === 'procurement') actions.appendChild(btn('Brief', () => a.ctx.go('inventory', { tab: 'buyers' }), 'ghost', 'search'));
   el.appendChild(actions);
   return el;
 }
@@ -265,7 +303,7 @@ function zoneMenu(a: WorldActions, loc: Location, x: number, y: number): HTMLEle
   const el = h('div', { class: 'wm' }, head(zone.icon, zone.name, level !== null ? `Level ${level}` : `${ls.tiles[code] ?? 0} m² in total`));
   el.appendChild(h('p', { class: 'wm-desc', text: ROOM_TIPS[code] ?? zone.description }));
   const actions = h('div', { class: 'wm-actions' });
-  actions.appendChild(btn('Build here', () => a.build(code === '.' || code === 'a' || code === 'g' ? 'zones' : code === 's' ? 'vehicles' : code === 'w' || code === 'd' || code === 'o' ? 'work' : code === 'l' || code === 'r' ? 'furniture' : 'zones'), 'primary', 'hammer'));
+  actions.appendChild(btn('Build here', () => a.build(code === '.' || code === 'a' || code === 'g' ? 'zones' : code === 's' ? 'showroom' : code === 'w' || code === 'd' || code === 'p' ? 'service' : code === 'o' || code === 'm' || code === 'k' ? 'staff' : code === 'l' || code === 'r' || code === 'b' ? 'customers' : code === 'f' ? 'finance' : 'zones'), 'primary', 'hammer'));
   actions.appendChild(btn('Dealership info', () => a.panel('lot'), 'ghost', 'garage'));
   el.appendChild(actions);
   return el;

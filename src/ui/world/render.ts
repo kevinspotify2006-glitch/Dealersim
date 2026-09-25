@@ -9,6 +9,16 @@ import { footprint, isDoor, isIndoor, lotStats, styleFor, zoneAt } from '../../s
 import { prepActive } from '../../sim/vehicles';
 import { FLOOR_STYLES, LIGHT_STYLES, OBJ_BY_ID, WALL_STYLES, ZONE_BY_CODE } from '../../data/lot';
 import { PREP_BY_ID } from '../../data/game';
+import { MODELS } from '../../data/vehicles';
+import { carsInWorkshop } from '../../sim/systems/planning';
+
+const MODEL_BY_NAME: Record<string, (typeof MODELS)[number]> = Object.fromEntries(MODELS.map((m) => [m.name, m]));
+const SERVICE_COLORS = ['#6b7480', '#b3202a', '#1f3b73', '#e9ecef', '#2c3036', '#5b6e4f', '#8a6a4a', '#3a5a8c'];
+function hashStr(t: string): number {
+  let x = 0;
+  for (let i = 0; i < t.length; i += 1) x = (x * 31 + t.charCodeAt(i)) >>> 0;
+  return x;
+}
 import type { Camera } from './camera';
 import type { Agent, Crowd, MovingCar } from './agents';
 
@@ -853,8 +863,19 @@ function drawPerson(g: CanvasRenderingContext2D, a: Agent, t: number, selected: 
   g.beginPath(); g.arc(0, 0, 0.17, 0, Math.PI * 2); g.fill();
   g.restore();
   if (a.kind === 'customer' && a.mood && a.alpha > 0.5) {
-    g.fillStyle = a.mood === 'good' ? '#2fd18b' : a.mood === 'warn' ? '#ffc233' : '#ff4d5e';
-    g.beginPath(); g.arc(a.x + 0.32, a.y - 0.42, 0.1, 0, Math.PI * 2); g.fill();
+    // A coloured ring on the floor and a dot over the head: readable at any zoom.
+    const col = a.mood === 'good' ? '#2fd18b' : a.mood === 'warn' ? '#ffc233' : '#ff4d5e';
+    const pulse = a.mood === 'bad' ? 0.06 * Math.sin(t * 7) : 0;
+    g.strokeStyle = col;
+    g.globalAlpha = 0.85;
+    g.lineWidth = 0.08;
+    g.beginPath(); g.ellipse(a.x, a.y + 0.05, 0.5 + pulse, 0.38 + pulse, 0, 0, Math.PI * 2); g.stroke();
+    g.globalAlpha = 1;
+    g.fillStyle = col;
+    g.beginPath(); g.arc(a.x + 0.34, a.y - 0.46, 0.15, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(0,0,0,0.55)';
+    g.lineWidth = 0.04;
+    g.stroke();
   }
 }
 
@@ -985,6 +1006,29 @@ export function renderScene(canvas: HTMLCanvasElement, s: Scene): void {
     }
     drawCar(g, pose.x, pose.y, pose.angle, v.colorHex, v.body, s.moveCar === v.id ? 0.55 : 1);
     carBadge(state, loc, v, pose, hud, cam.zoom >= 34);
+  }
+
+  // Customers' cars in for service: at reception, waiting, on a lift, ready to collect.
+  const serviceCars = carsInWorkshop(state, loc.id);
+  if (serviceCars.length) {
+    const taken = new Set(cars.map((v) => v.slotId).filter((x): x is string => !!x));
+    const free = [...stats.slots.parking, ...stats.slots.storage].filter((o) => !taken.has(o.id));
+    let fi = 0;
+    for (const j of serviceCars) {
+      let pose: { x: number; y: number; angle: number } | null = null;
+      if ((j.stage === 'lift' || j.stage === 'check') && j.liftId) pose = carPose(loc, j.liftId, s.time);
+      if (!pose) {
+        const o = free[fi];
+        fi += 1;
+        if (o) pose = carPose(loc, o.id, s.time);
+      }
+      if (!pose) { pose = { x: 2.5 + curb * 4.6, y: lot.h + 1.6, angle: 0 }; curb += 1; }
+      const model = MODEL_BY_NAME[j.vehicle];
+      drawCar(g, pose.x, pose.y, pose.angle, SERVICE_COLORS[hashStr(j.id) % SERVICE_COLORS.length], model?.body ?? 'Hatchback', 1);
+      const stage = j.stage === 'lift' ? { icon: '🔧', label: 'Being serviced', tone: 'info' } : j.stage === 'ready' ? { icon: '🟢', label: 'Ready', tone: 'good' } : j.stage === 'reception' ? { icon: '📋', label: 'Awaiting inspection', tone: 'warn' } : j.status === 'parts' ? { icon: '📦', label: 'Waiting for parts', tone: 'bad' } : { icon: '⏳', label: 'Waiting', tone: 'warn' };
+      const progress = j.stage === 'lift' ? Math.max(0.08, 1 - j.hours / Math.max(0.1, j.totalHours)) : undefined;
+      hud.push({ car: true, label: cam.zoom >= 34 ? stage.label : '', x: pose.x, y: pose.y - 1.5, tone: stage.tone, icon: stage.icon, progress });
+    }
   }
 
   // Moving cars (sold, test drives) and road traffic.

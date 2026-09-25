@@ -2,11 +2,12 @@ import type { Ctx, View } from '../app';
 import type { Vehicle } from '../../sim/types';
 import { empty, h, icon, table } from '../dom';
 import { money, moneySigned } from '../../sim/format';
-import { bookValue, demandScore, knownCondition, marketMods, totalCost, suggestedPrice } from '../../sim/market';
+import { bookValue, demandLabel, demandScore, knownCondition, marketMods, totalCost, suggestedPrice } from '../../sim/market';
+import { carArt } from '../art';
 import { activeLocation, capacityOf, locationName, occupying } from '../../sim/state';
 import { listVehicle } from '../../sim/trading';
 import { startPrep, canPrep } from '../../sim/vehicles';
-import { conditionTag, demandTag, pageHead, riskTag, segmented, statusTag, vehicleCard, helpButton, richTipped } from '../kit';
+import { conditionTag, demandTag, pageHead, riskTag, segmented, statusTag, helpButton, richTipped } from '../kit';
 import { vehicleInfo } from '../world/info';
 import { openVehicle } from '../modals/vehicle';
 import { isWide } from '../layout';
@@ -18,12 +19,15 @@ import { BODIES, FUELS, MANUFACTURERS } from '../../data/vehicles';
 type StatusFilter = 'all' | 'yard' | 'prep' | 'listed' | 'transit';
 const filters = { status: 'all' as StatusFilter, q: '', sort: 'days', make: '', fuel: '', body: '', loc: 'all' };
 
+let layout: 'cards' | 'table' = 'cards';
+
 export function inventoryView(ctx: Ctx): View {
   const s = ctx.state;
   const view = h('div', { class: 'view' });
   const loc = activeLocation(s);
   view.appendChild(pageHead('Inventory', `${s.vehicles.length} vehicles · ${occupying(s, loc.id)}/${capacityOf(loc)} spaces at ${loc.name}`,
     helpButton('prep'),
+    isWide() && ctx.params.compact !== '1' ? segmented<'cards' | 'table'>([{ value: 'cards', label: '▦ Cards' }, { value: 'table', label: '☰ Table' }], layout, (v) => { layout = v; ctx.refresh(); }) : null,
     h('button', { class: 'btn primary', on: { click: () => ctx.go('market') } }, icon('store', 15), 'Buy vehicles')));
 
   const counts = {
@@ -103,7 +107,7 @@ export function inventoryView(ctx: Ctx): View {
       }
       return null;
     };
-    if (isWide()) {
+    if (isWide() && layout === 'table') {
       const rows = list.map((v) => {
         const m = margin(v);
         return [
@@ -123,16 +127,31 @@ export function inventoryView(ctx: Ctx): View {
       });
       host.appendChild(table(['Vehicle', 'Status', 'Condition', 'Pres.', 'Demand', 'Risk', 'Asking', 'Retail est.', 'Margin', 'Days', s.locations.length > 1 ? 'Location' : 'Online', ''], rows, { onRowClick: (i) => openVehicle(ctx, list[i].id), rowIds: list.map((v) => v.id) }));
     } else {
-      const grid = h('div', { class: 'vcard-list' });
+      // Showcase cards: the car, its price, what it earns you, how long it has stood and how wanted it is.
+      const grid = h('div', { class: 'stock-grid' });
       for (const v of list) {
         const m = margin(v);
-        grid.appendChild(vehicleCard(s, v, {
-          price: v.askingPrice ? money(v.askingPrice) : money(suggestedPrice(s, v, mods)),
-          priceSub: `margin ${moneySigned(m)} · ${v.daysInStock}d`,
-          badges: [statusTag(v.status), conditionTag(v), riskTag(v)],
-          onClick: () => openVehicle(ctx, v.id),
-          footer: quick(v),
-        }));
+        const d = demandLabel(demandScore(s, v, mods));
+        const price = v.askingPrice || suggestedPrice(s, v, mods);
+        const art = h('div', { class: 'sc-art' });
+        art.appendChild(carArt(v, 210));
+        const wanted = s.customers.some((c) => c.vehicleId === v.id && (c.status === 'waiting' || c.status === 'negotiating'));
+        const card = h('article', { class: `stock-card st-${v.status}`, data: { id: v.id }, role: 'button', on: { click: (e: Event) => { if (!(e.target as HTMLElement).closest('button')) openVehicle(ctx, v.id); } } },
+          h('div', { class: 'sc-ribbon' }, statusTag(v.status), wanted ? h('span', { class: 'tag good', text: '★ customer' }) : null, v.certified ? h('span', { class: 'tag good', text: '✔' }) : null),
+          art,
+          h('div', { class: 'sc-body' },
+            h('div', { class: 'sc-name', text: `${v.brand} ${v.model}` }),
+            h('div', { class: 'tiny muted', text: `${v.year} · ${v.trim} · ${Math.round(v.mileage / 1000)}k km · ${v.fuel}` }),
+            h('div', { class: 'sc-price', text: money(price) }),
+            h('div', { class: 'sc-line' }),
+            h('div', { class: `sc-fact ${m >= 0 ? 'good' : 'bad'}` }, h('span', { text: m >= 0 ? '🟢' : '🔴' }), h('span', { text: `${moneySigned(m)} expected margin` })),
+            h('div', { class: 'sc-facts' },
+              h('span', { class: `sc-chip ${v.daysInStock > 60 ? 'bad' : v.daysInStock > 30 ? 'warn' : ''}`, text: `📅 ${v.daysInStock} days` }),
+              h('span', { class: `sc-chip ${d.tone}`, text: `${d.tone === 'good' ? '🔥' : d.tone === 'info' ? '📊' : '❄️'} ${d.label} demand` }),
+              h('span', { class: 'sc-chip', text: `✨ ${Math.round(v.presentation)}` })),
+            quick(v)));
+        card.tabIndex = 0;
+        grid.appendChild(card);
       }
       host.appendChild(grid);
     }

@@ -3,6 +3,7 @@
  * (a waiting customer in the sim is a person standing by the car they want,
  * an employee stands at their workstation) but their walking is purely visual.
  */
+import { customerMood } from '../../sim/customers';
 import type { GameState, Location, Role, Vehicle } from '../../sim/types';
 import { absHour } from '../../sim/state';
 import { footprint, lotStats } from '../../sim/lot';
@@ -54,6 +55,10 @@ const CLOTHES = ['#3cc7ff', '#ff7a1a', '#2fd18b', '#9b8cff', '#ff4d5e', '#ffc233
 export const ROLE_COLORS: Record<Role, string> = {
   sales: '#ff7a1a', mechanic: '#ffc233', detailer: '#3cc7ff', buyer: '#2fd18b', manager: '#eef1f4', accountant: '#9b8cff', marketing: '#ff4dd2',
   finance: '#6fb08a', reception: '#f7b267', advisor: '#8f9aa6', technician: '#ffd166', inventory: '#a3876b', delivery: '#b8a6f0', security: '#2b3a4a', cleaner: '#7a8a99',
+  photographer: '#eef1f4',
+  prep: '#c9a36b',
+  procurement: '#5ad1c4',
+  admin: '#a3abb6',
 };
 
 function hash(s: string): number {
@@ -118,8 +123,10 @@ export class Crowd {
         this.agents.set(id, a);
         newCustomers += 1;
       }
-      const hoursLeft = c.leaveHour - absHour(state);
-      a.mood = c.status === 'negotiating' ? 'good' : hoursLeft <= 1 ? 'bad' : hoursLeft <= 2 ? 'warn' : 'good';
+      // 🟢 likely to buy · 🟡 doubting · 🔴 about to walk out.
+      const m = c.status === 'negotiating' ? 'green' : customerMood(state, c);
+      a.mood = m === 'green' ? 'good' : m === 'amber' ? 'warn' : 'bad';
+      void absHour;
     }
     // Staff at this location.
     for (const e of state.employees) {

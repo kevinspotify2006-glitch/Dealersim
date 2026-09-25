@@ -153,6 +153,37 @@ export function worldView(ctx: Ctx): View {
     return (SPEEDS[st.speed] ?? 0) / SPEEDS[1];
   };
   let syncTimer = 0;
+  /** Floating feedback labels (drift up and fade over two seconds). */
+  const floaters: { text: string; x: number; y: number; born: number; tone: string }[] = [];
+  const drawFloaters = (): void => {
+    if (!floaters.length || document.documentElement.classList.contains('reduced-motion')) { floaters.length = 0; return; }
+    const g = canvas.getContext('2d');
+    if (!g) return;
+    g.save();
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.font = '700 13px system-ui, sans-serif';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    for (let i = floaters.length - 1; i >= 0; i -= 1) {
+      const f = floaters[i];
+      const age = time - f.born;
+      if (age > 2.4) { floaters.splice(i, 1); continue; }
+      const p = cam.toScreen(f.x, f.y);
+      const yy = p.y - 18 - age * 26;
+      const alpha = age < 0.2 ? age / 0.2 : Math.max(0, 1 - (age - 1.4));
+      const w = g.measureText(f.text).width + 18;
+      g.globalAlpha = alpha * 0.92;
+      g.fillStyle = 'rgba(10,12,15,0.88)';
+      g.beginPath(); g.roundRect(p.x - w / 2, yy - 13, w, 26, 13); g.fill();
+      g.strokeStyle = f.tone;
+      g.lineWidth = 1.5;
+      g.stroke();
+      g.globalAlpha = alpha;
+      g.fillStyle = f.tone;
+      g.fillText(f.text, p.x, yy + 1);
+    }
+    g.restore();
+  };
   const frame = (now: number): void => {
     if (destroyed) return;
     const dt = Math.min(0.1, (now - last) / 1000);
@@ -188,6 +219,7 @@ export function worldView(ctx: Ctx): View {
       dragging: ui.tool.kind === 'car' ? ui.tool.vehicleId : ui.tool.kind === 'move' ? ui.tool.objId : null,
       paint: paintPreview(), moveCar: ui.moveCar ?? (ui.tool.kind === 'car' ? ui.tool.vehicleId : null), flow: ui.flow || (ui.build && ui.tool.kind === 'paint'), dpr,
     });
+    drawFloaters();
     if (popAnchor && !isPhone()) placePop();
     raf = requestAnimationFrame(frame);
   };
@@ -1355,8 +1387,31 @@ export function worldView(ctx: Ctx): View {
   document.addEventListener('keydown', onKeyDown);
   document.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
-  unsubs.push(on('sale', ({ vehicle }) => {
-    if (vehicle.locationId === loc.id) crowd.departCar(loc, vehicle, lastSlot.get(vehicle.id));
+  unsubs.push(on('sale', ({ vehicle, price }) => {
+    if (vehicle.locationId === loc.id) {
+      crowd.departCar(loc, vehicle, lastSlot.get(vehicle.id));
+      const slot = lastSlot.get(vehicle.id);
+      const p = slot ? carPose(loc, slot, time) : null;
+      floaters.push({ text: `🚗 → 💰 €${Math.round(price / 100) / 10}k`, x: p?.x ?? loc.lot.w / 2, y: p?.y ?? loc.lot.h - 3, born: time, tone: '#2fd18b' });
+    }
+  }));
+  // Little signs of life: a service car going onto a lift, a car ready, a booking, a bought car.
+  unsubs.push(on('fx', (f) => {
+    if (f.locationId !== loc.id) return;
+    let x = loc.lot.w / 2;
+    let y = loc.lot.h - 3;
+    const job = f.ref ? ctx.state.serviceJobs.find((j) => j.id === f.ref) : undefined;
+    const veh = f.ref ? ctx.state.vehicles.find((v) => v.id === f.ref) : undefined;
+    const p = job?.liftId ? carPose(loc, job.liftId, time) : veh?.slotId ? carPose(loc, veh.slotId, time) : null;
+    if (p) { x = p.x; y = p.y; }
+    else {
+      const ls = lotStats(loc.lot);
+      const desk = f.kind === 'appointment' || f.kind === 'arrived' ? [...ls.stations.advisor ?? [], ...ls.stations.reception ?? [], ...ls.stations.sales ?? []][0] : undefined;
+      if (desk) { const fp = footprint(desk); x = fp.x + fp.w / 2; y = fp.y; }
+    }
+    const tone = f.kind === 'service-ready' ? '#2fd18b' : f.kind === 'service-start' ? '#3cc7ff' : f.kind === 'bought' ? '#ffc233' : '#eef1f4';
+    floaters.push({ text: f.kind === 'service-start' ? `🚗 → 🔧 ${f.label.replace(/^\S+\s/, '')}` : f.kind === 'service-ready' ? `🔧 → 🟢 ${f.label.replace(/^\S+\s/, '')}` : f.kind === 'appointment' ? `👤 → 📅 ${f.label.replace(/^\S+\s/, '')}` : f.label, x, y, born: time, tone });
+    if (floaters.length > 12) floaters.shift();
   }));
   // Remember where each car stood, so a sold car can drive out of the right space.
   const lastSlot = new Map<string, string>();
@@ -1389,6 +1444,7 @@ export function worldView(ctx: Ctx): View {
   // Test handle: lets automated tests find things on the map (same as a player looking).
   (window as unknown as { __CDMT_WORLD__?: unknown }).__CDMT_WORLD__ = {
     toScreen: (x: number, y: number) => cam.toScreen(x, y),
+    select: (sel: Selection) => actions.select(sel),
     carScreen: (id: string) => {
       const v = ctx.state.vehicles.find((x) => x.id === id);
       const p = v?.slotId ? carPose(loc, v.slotId, time) : null;

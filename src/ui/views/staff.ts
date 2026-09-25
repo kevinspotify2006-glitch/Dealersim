@@ -1,30 +1,70 @@
+/**
+ * People: the team roster (cards with what each person is doing, how well and
+ * how they feel), recruitment, and the employee profile.
+ */
 import type { Ctx, View } from '../app';
-import type { Employee, Role } from '../../sim/types';
-import { avatar, confirmDialog, empty, h, icon, modal, table, toast } from '../dom';
+import type { Employee, Role, SkillId } from '../../sim/types';
+import { avatar, confirmDialog, empty, h, icon, modal, toast } from '../dom';
 import { money } from '../../sim/format';
 import { ROLES, ROLE_BY_ID, SKILL_NAMES, TRAINING } from '../../data/game';
-import type { SkillId } from '../../sim/types';
-import { bonusAmount, canPromote, changeRole, fire, giveBonus, giveRaise, hire, hiringFee, promote, skillOf, synergies, titleOf, train, trainingCost, trainingDays, transfer, xpForLevel, MAX_LEVEL } from '../../sim/staff';
+import { CONTRACT_NAMES, bonusAmount, canPromote, changeRole, fire, giveBonus, giveRaise, hire, hiringFee, isAbsent, makePermanent, promote, setFocus, skillOf, synergies, titleOf, train, trainingCost, trainingDays, transfer, xpForLevel, MAX_LEVEL } from '../../sim/staff';
 import { freeStation, stationName } from '../../sim/lot';
 import { activeLocation, locationName, staffAt, staffCapacity } from '../../sim/state';
+import { buyerStats } from '../../sim/systems/procurement';
+import { fmtHour } from '../../sim/systems/planning';
 import { helpButton, kv, pageHead, panel, panelTitle, progressBar, tipped } from '../kit';
-import { isWide } from '../layout';
 import { play } from '../../platform/sound';
+import { ROLE_COLORS } from '../world/agents';
 
 let q = '';
+let roleFilter = '';
 
 function stressTone(v: number): string {
   return v >= 70 ? 'bad' : v >= 45 ? 'warn' : 'good';
 }
 
-const SKILLS: SkillId[] = ['sales', 'negotiation', 'finance', 'service', 'technical', 'ev', 'luxury', 'management', 'speed'];
+const SKILLS: SkillId[] = ['sales', 'negotiation', 'finance', 'service', 'technical', 'ev', 'luxury', 'management', 'speed', 'buying', 'appraisal', 'reliability', 'composure', 'detail'];
 
-function topSkills(e: Employee): string {
-  return SKILLS.map((k) => ({ k, v: skillOf(e, k) })).sort((a, b) => b.v - a.v).slice(0, 3).map((x) => `${SKILL_NAMES[x.k]} ${Math.round(x.v)}`).join(' · ');
+/** The skills that matter most for a person's job, then their character traits. */
+function keySkills(e: Employee): SkillId[] {
+  const main = ROLE_BY_ID[e.role].skill;
+  const byRole = SKILLS.filter((k) => k !== main && !['reliability', 'composure', 'detail'].includes(k)).map((k) => ({ k, v: skillOf(e, k) })).sort((a, b) => b.v - a.v).slice(0, 3).map((x) => x.k);
+  return [main, ...byRole.filter((k) => k !== main)];
 }
 
 function moraleTone(m: number): string {
   return m >= 65 ? 'good' : m >= 40 ? 'warn' : 'bad';
+}
+
+/** What someone is doing right now, in a few words. */
+export function currentTask(ctx: Ctx, e: Employee): string {
+  const s = ctx.state;
+  if (isAbsent(s, e)) return '🤒 Off sick today';
+  if (e.trainingDaysLeft > 0) return `🎓 On a course (${e.trainingDaysLeft}d)`;
+  if (!e.stationId) return `⚠ No ${stationName(e.role).replace(/^an? /, '')} to work at`;
+  const now = s.appointments.find((a) => a.staffId === e.id && a.day === s.day && a.status === 'active');
+  if (now) return `${now.title}: ${now.vehicle}`;
+  if (e.task) return e.task;
+  const next = s.appointments.filter((a) => a.staffId === e.id && a.day === s.day && a.status === 'planned' && a.start >= s.hour).sort((a, b) => a.start - b.start)[0];
+  if (next) return `Next: ${fmtHour(next.start)} ${next.title}`;
+  return '✅ Available';
+}
+
+function personCard(ctx: Ctx, e: Employee): HTMLElement {
+  const color = ROLE_COLORS[e.role] ?? '#9aa3ad';
+  const task = currentTask(ctx, e);
+  const busy = !task.startsWith('✅');
+  return h('button', { class: `person-card${isAbsent(ctx.state, e) ? ' absent' : ''}`, data: { emp: e.id }, style: `--role:${color}`, on: { click: () => openEmployee(ctx, e.id) } },
+    h('div', { class: 'pc-top' },
+      h('span', { class: 'pc-avatar' }, avatar(e.name, e.morale < 40 ? 'warn' : undefined), h('span', { class: 'pc-role', text: ROLE_BY_ID[e.role].icon })),
+      h('div', { class: 'pc-id' }, h('div', { class: 'card-title', text: e.name }), h('div', { class: 'tiny muted', text: `${titleOf(e)} · L${e.level}` })),
+      canPromote(e) ? h('span', { class: 'tag accent', text: '⬆' }) : null),
+    h('div', { class: `pc-task${busy ? ' busy' : ''}`, text: task }),
+    h('div', { class: 'pc-bars' },
+      tipped(h('div', { class: 'pc-bar' }, h('span', { text: '⭐' }), progressBar((e.performance ?? 50) / 100, (e.performance ?? 50) >= 60 ? 'good' : (e.performance ?? 50) >= 40 ? 'warn' : 'bad')), `Performance ${Math.round(e.performance ?? 50)}/100`),
+      tipped(h('div', { class: 'pc-bar' }, h('span', { text: '😊' }), progressBar(e.morale / 100, moraleTone(e.morale))), `Satisfaction ${Math.round(e.morale)}/100`),
+      tipped(h('div', { class: 'pc-bar' }, h('span', { text: '🔥' }), progressBar((e.stress ?? 0) / 100, stressTone(e.stress ?? 0))), `Stress ${Math.round(e.stress ?? 0)}/100`)),
+    h('div', { class: 'pc-foot' }, h('span', { class: 'tiny', text: `${money(e.salary)}/mo` }), h('span', { class: 'tiny muted', text: e.contract && e.contract !== 'permanent' ? (e.contract === 'parttime' ? 'part-time' : `temp · ${Math.max(0, (e.contractEnd ?? 0) - ctx.state.day)}d`) : `${e.age ?? '—'} y` })));
 }
 
 export function staffView(ctx: Ctx): View {
@@ -32,41 +72,35 @@ export function staffView(ctx: Ctx): View {
   const view = h('div', { class: 'view' });
   const loc = activeLocation(s);
   const payroll = s.employees.reduce((a, e) => a + e.salary, 0);
-  view.appendChild(pageHead('Staff', `${s.employees.length} employees · payroll ${money(payroll)}/month · ${staffAt(s, loc.id).length}/${staffCapacity(loc)} workstations at ${loc.name}`, helpButton('staff')));
+  const compact = ctx.params.compact === '1';
+  view.appendChild(pageHead('Team', `${s.employees.length} people · payroll ${money(payroll)}/month · ${staffAt(s, loc.id).length}/${staffCapacity(loc)} workstations at ${loc.name}`, helpButton('staff'),
+    h('button', { class: 'btn primary', data: { act: 'recruit' }, on: { click: () => ctx.go('people', { tab: 'hire' }) } }, icon('plus', 14), 'Recruit')));
 
-  const search = h('input', { type: 'search', placeholder: 'Search staff…', value: q, aria: { label: 'Search staff' } });
+  const search = h('input', { type: 'search', placeholder: 'Search people…', value: q, aria: { label: 'Search staff' } });
   const host = h('div', {});
+  const roles = [...new Set(s.employees.map((e) => e.role))];
   const draw = (): void => {
-    const list = s.employees.filter((e) => !q || `${e.name} ${ROLE_BY_ID[e.role].name} ${e.specialization}`.toLowerCase().includes(q.toLowerCase()));
+    const list = s.employees.filter((e) => (!roleFilter || e.role === roleFilter) && (!q || `${e.name} ${ROLE_BY_ID[e.role].name} ${titleOf(e)} ${e.specialization}`.toLowerCase().includes(q.toLowerCase())));
     if (!s.employees.length) {
-      host.replaceChildren(empty('You are running the place alone. Hire someone below.', { title: 'No staff', icon: 'people' }));
+      host.replaceChildren(empty('You are running the place alone. Recruit someone — every role needs a workstation of its own.', { title: 'No staff yet', icon: 'people', action: h('button', { class: 'btn primary', on: { click: () => ctx.go('people', { tab: 'hire' }) } }, 'Recruit') }));
       return;
     }
-    if (isWide()) {
-      host.replaceChildren(table(['Name', 'Role', 'Skill', 'Level', 'Morale', 'Stress', 'Salary', 'Location', 'Deals'], list.map((e) => [
-        h('div', { class: 'cell-person' }, avatar(e.name, e.morale < 40 ? 'warn' : undefined, true), h('div', {}, h('div', { class: 'cell-person-name', text: e.name }), h('div', { class: 'tiny muted', text: e.trainingDaysLeft > 0 ? `On a course (${e.trainingDaysLeft}d)` : e.specialization }))),
-        h('span', { class: 'tag plain', text: `${ROLE_BY_ID[e.role].icon} ${titleOf(e)}` }),
-        h('div', { class: 'skill-cell' }, progressBar(e.skill / 100, 'good'), h('span', { class: 'tiny', text: String(Math.round(e.skill)) })),
-        h('span', { class: 'num', text: `${e.level}${canPromote(e) ? ' ⬆' : ''}` }),
-        h('span', { class: `tag ${moraleTone(e.morale)}`, text: String(Math.round(e.morale)) }),
-        h('span', { class: `tag ${stressTone(e.stress ?? 0)}`, text: String(Math.round(e.stress ?? 0)) }),
-        h('span', { class: 'num', text: money(e.salary) }),
-        h('span', { class: 'tiny', text: locationName(s, e.locationId) }),
-        h('span', { class: 'num', text: String(e.dealsClosed) }),
-      ]), { onRowClick: (i) => openEmployee(ctx, list[i].id) }));
-    } else {
-      host.replaceChildren(h('div', { class: 'staff-cards' }, ...list.map((e) => h('button', { class: 'staff-card', on: { click: () => openEmployee(ctx, e.id) } },
-        avatar(e.name, e.morale < 40 ? 'warn' : undefined),
-        h('div', { class: 'staff-card-body' }, h('div', { class: 'card-title', text: e.name }), h('div', { class: 'tiny muted', text: `${titleOf(e)} · L${e.level} · ${money(e.salary)}/mo · stress ${Math.round(e.stress ?? 0)}` }), progressBar(e.skill / 100, 'good')),
-        h('span', { class: `tag ${moraleTone(e.morale)}`, text: `☺ ${Math.round(e.morale)}` }),
-        canPromote(e) ? h('span', { class: 'tag accent', text: 'Promote' }) : null))));
-    }
+    host.replaceChildren(h('div', { class: 'person-grid' }, ...list.map((e) => personCard(ctx, e))));
   };
   search.addEventListener('input', () => { q = search.value; draw(); });
   draw();
+  const filters = h('div', { class: 'pill-row scroll-x' },
+    h('button', { class: `pill${!roleFilter ? ' active' : ''}`, on: { click: () => { roleFilter = ''; ctx.refresh(); } } }, `Everyone ${s.employees.length}`),
+    ...roles.map((r) => h('button', { class: `pill${roleFilter === r ? ' active' : ''}`, data: { role: r }, on: { click: () => { roleFilter = r; ctx.refresh(); } } }, `${ROLE_BY_ID[r].icon} ${ROLE_BY_ID[r].name} ${s.employees.filter((e) => e.role === r).length}`)));
+  view.appendChild(panel(panelTitle('Your team'), h('div', { class: 'search wide' }, icon('search', 15), search), filters, host));
+  // In the dealership's side panel, this week's applicants come straight after the team.
+  if (compact) {
+    const rec = recruitView(ctx).el;
+    rec.classList.add('embedded');
+    view.appendChild(rec);
+    return { el: view };
+  }
 
-  const counts = ROLES.map((r) => ({ r, n: s.employees.filter((e) => e.role === r.id).length }));
-  // Commission: a share of gross profit on every deal your staff close.
   const rate = s.settings.commission ?? 0.03;
   const commissionMonth = s.employees.reduce((a, e) => a + (e.commission ?? 0), 0);
   const commissionPanel = panel(panelTitle('Sales commission', h('span', { class: 'sub', text: `${money(commissionMonth)} paid this month` })),
@@ -80,35 +114,44 @@ export function staffView(ctx: Ctx): View {
     ...syn.map((x) => h('div', { class: `syn-row${x.active ? ' on' : ''}` }, h('span', { class: 'syn-ic', text: x.icon }),
       h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'card-title', text: x.name }), h('div', { class: 'tiny muted', text: x.active ? x.effect : `Needs: ${x.needs}` })),
       h('span', { class: `tag ${x.active ? 'good' : ''}`, text: x.active ? 'Active' : 'Off' }))));
-  const left = h('div', { class: 'col' });
-  const right = h('div', { class: 'col' });
-  left.appendChild(panel(panelTitle('Your team'), h('div', { class: 'search wide' }, icon('search', 15), search), host));
+  view.appendChild(h('div', { class: 'grid cols-2' }, commissionPanel, synPanel));
+  return { el: view };
+}
 
-  const cands = s.candidates;
-  left.appendChild(panel(panelTitle('Candidates', h('span', { class: 'sub', text: `new applicants every Monday · hiring into ${loc.name}` })),
-    cands.length ? h('div', { class: 'cand-list' }, ...cands.map((c) => h('div', { class: 'cand' },
-      avatar(c.name, 'good', true),
-      h('div', { class: 'cand-body' }, h('div', { class: 'card-title', text: c.name }), h('div', { class: 'tiny muted', text: `${ROLE_BY_ID[c.role].name} · ${c.specialization} · skill ${c.skill} · works at ${ROLE_BY_ID[c.role].station}` }), progressBar(c.skill / 100, 'good'),
-        h('div', { class: 'tiny muted', text: topSkills(c) })),
-      h('div', { class: 'cand-side' }, h('span', { class: 'num', text: `${money(c.salary)}/mo` }), h('span', { class: 'tiny muted', text: `fee ${money(hiringFee(s, c))}` }),
-        freeStation(s, loc, c.role)
-          ? h('button', { class: 'btn small primary', on: { click: () => ctx.act(hire(s, c.id, loc.id)) } }, 'Hire')
-          : h('button', {
-            class: 'btn small', title: `Needs ${stationName(c.role)} — build one first`,
-            on: { click: () => ctx.go('dealership', { build: '1', cat: 'staff' }) },
-          }, `Needs ${stationName(c.role).replace(/^an? /, '')}`))))) : h('p', { class: 'empty', text: 'No applicants this week. More arrive on Monday.' })));
-
-  right.appendChild(commissionPanel);
-  right.appendChild(synPanel);
-  right.appendChild(panel('Roles', ...counts.map(({ r, n }) => tipped(h('div', { class: `stat${r.minLevel > s.companyLevel ? ' muted' : ''}` }, h('span', { class: 'stat-label', text: `${r.icon} ${r.name}` }), h('span', { class: 'stat-value', text: r.minLevel > s.companyLevel ? `level ${r.minLevel}` : String(n) })), `${r.description} Works at ${r.station}.`))));
-  right.appendChild(panel('What staff do', h('div', { class: 'tiny muted list' }, ...ROLES.map((r) => h('p', { style: 'margin:0', text: `${r.icon} ${r.name}: ${r.description}` })))));
-  view.appendChild(h('div', { class: 'grid split' }, left, right));
+/** Recruitment: this week's applicants. */
+export function recruitView(ctx: Ctx): View {
+  const s = ctx.state;
+  const view = h('div', { class: 'view' });
+  const loc = activeLocation(s);
+  view.appendChild(pageHead('Recruitment', `${s.candidates.length} applicants this week · hiring into ${loc.name} · new people apply every Monday`, helpButton('staff')));
+  const roles = [...new Set(s.candidates.map((c) => c.role))];
+  view.appendChild(h('div', { class: 'pill-row scroll-x' },
+    h('button', { class: `pill${!roleFilter ? ' active' : ''}`, on: { click: () => { roleFilter = ''; ctx.refresh(); } } }, 'All roles'),
+    ...roles.map((r) => h('button', { class: `pill${roleFilter === r ? ' active' : ''}`, on: { click: () => { roleFilter = r; ctx.refresh(); } } }, `${ROLE_BY_ID[r].icon} ${ROLE_BY_ID[r].name}`))));
+  const cands = s.candidates.filter((c) => !roleFilter || c.role === roleFilter);
+  view.appendChild(cands.length ? h('div', { class: 'person-grid' }, ...cands.map((c) => {
+    const station = freeStation(s, loc, c.role);
+    return h('article', { class: 'person-card cand', data: { cand: c.id }, style: `--role:${ROLE_COLORS[c.role] ?? '#9aa3ad'}` },
+      h('div', { class: 'pc-top' },
+        h('span', { class: 'pc-avatar' }, avatar(c.name, 'good'), h('span', { class: 'pc-role', text: ROLE_BY_ID[c.role].icon })),
+        h('div', { class: 'pc-id' }, h('div', { class: 'card-title', text: c.name }), h('div', { class: 'tiny muted', text: `${titleOf(c)} · ${c.age ?? '—'} y · ${c.specialization}` }))),
+      h('div', { class: 'cand-skills' }, ...keySkills(c).slice(0, 4).map((k) => h('div', { class: 'skill-row' }, h('span', { class: 'tiny', text: SKILL_NAMES[k] }), progressBar(skillOf(c, k) / 100, k === ROLE_BY_ID[c.role].skill ? 'good' : 'info'), h('span', { class: 'tiny num', text: String(Math.round(skillOf(c, k))) })))),
+      h('div', { class: 'trait-row' }, ...(['reliability', 'composure', 'detail'] as SkillId[]).map((k) => tipped(h('span', { class: `trait ${skillOf(c, k) >= 70 ? 'good' : skillOf(c, k) < 40 ? 'bad' : ''}`, text: `${k === 'reliability' ? '🕒' : k === 'composure' ? '🧘' : '🔬'} ${Math.round(skillOf(c, k))}` }), SKILL_NAMES[k]))),
+      h('div', { class: 'pc-foot' }, h('span', { class: 'tiny', text: `${money(c.salary)}/mo · ${CONTRACT_NAMES[c.contract ?? 'permanent']}` }), h('span', { class: 'tiny muted', text: `fee ${money(hiringFee(s, c))}` })),
+      station
+        ? h('button', { class: 'btn small primary block', data: { hire: c.id }, on: { click: () => ctx.act(hire(s, c.id, loc.id), { sound: 'success' }) } }, 'Hire')
+        : h('button', { class: 'btn small block', title: `Needs ${stationName(c.role)} — build one first`, on: { click: () => ctx.go('dealership', { build: '1', cat: 'staff' }) } }, `Build ${stationName(c.role).replace(/^an? /, '')} first`));
+  })) : h('p', { class: 'empty', text: 'No applicants for this role this week. More arrive on Monday.' }));
+  view.appendChild(panel('Roles', h('div', { class: 'role-list' }, ...ROLES.map((r) => h('div', { class: `role-row${r.minLevel > s.companyLevel ? ' muted' : ''}` },
+    h('span', { class: 'syn-ic', text: r.icon }),
+    h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'card-title', text: `${r.name}${r.minLevel > s.companyLevel ? ` · level ${r.minLevel}` : ''}` }), h('div', { class: 'tiny muted', text: `${r.description} Works at ${r.station}.` })),
+    h('span', { class: 'num', text: String(s.employees.filter((e) => e.role === r.id).length) }))))));
   return { el: view };
 }
 
 export function openEmployee(ctx: Ctx, id: string): void {
   const s = ctx.state;
-  const { body, footer, close } = modal({ title: 'Employee', width: 560, onClose: () => ctx.refresh() });
+  const { body, footer, close } = modal({ title: 'Employee', width: 600, onClose: () => ctx.refresh() });
   const run = (r: { ok: boolean; message: string }): void => {
     toast(r.message, r.ok ? 'good' : 'bad');
     play(r.ok ? 'success' : 'error');
@@ -123,17 +166,34 @@ export function openEmployee(ctx: Ctx, id: string): void {
       footer.appendChild(h('button', { class: 'btn primary', on: { click: close } }, 'Close'));
       return;
     }
-    body.appendChild(h('div', { class: 'profile-head' }, avatar(e.name), h('div', {}, h('div', { class: 'card-title', text: e.name }), h('div', { class: 'tiny muted', text: `${titleOf(e)} · ${e.specialization} · ${locationName(s, e.locationId)}` }))));
+    body.appendChild(h('div', { class: 'profile-head', style: `--role:${ROLE_COLORS[e.role] ?? '#9aa3ad'}` }, avatar(e.name), h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'card-title', text: e.name }), h('div', { class: 'tiny muted', text: `${titleOf(e)} · ${e.specialization} · ${locationName(s, e.locationId)}` })),
+      h('span', { class: 'pc-task busy', text: currentTask(ctx, e) })));
+    body.appendChild(h('div', { class: 'fact-grid' },
+      fact('Salary', `${money(e.salary)}/mo`), fact('Contract', CONTRACT_NAMES[e.contract ?? 'permanent'] + (e.contract === 'temporary' ? ` · ends in ${Math.max(0, (e.contractEnd ?? 0) - s.day)}d` : '')),
+      fact('Hours', `${e.hours ?? 40} h/week`), fact('Age', `${e.age ?? '—'}`), fact('Experience', `${s.day - e.hiredDay} days · ${e.dealsClosed} deals/jobs`), fact('Commission', money(e.commission ?? 0))));
     body.appendChild(h('div', { class: 'grid cols-2' },
-      h('div', {}, h('div', { class: 'tiny muted', text: `Skill ${Math.round(e.skill)}/100` }), progressBar(e.skill / 100, 'good')),
-      h('div', {}, h('div', { class: 'tiny muted', text: `Morale ${Math.round(e.morale)}/100` }), progressBar(e.morale / 100, moraleTone(e.morale))),
-      h('div', {}, h('div', { class: 'tiny muted', text: e.level >= MAX_LEVEL ? `Level ${e.level} (max)` : `Level ${e.level} · XP ${e.xp}/${xpForLevel(e.level)}` }), progressBar(e.level >= MAX_LEVEL ? 1 : e.xp / xpForLevel(e.level), 'info')),
-      h('div', {}, kv('Salary', `${money(e.salary)}/month`), kv('Deals / jobs', String(e.dealsClosed)))));
-    body.appendChild(h('div', { class: 'grid cols-2' },
-      h('div', {}, h('div', { class: 'tiny muted', text: `Stress ${Math.round(e.stress ?? 0)}/100${(e.stress ?? 0) > 70 ? ' — burning out, works worse' : ''}` }), progressBar((e.stress ?? 0) / 100, stressTone(e.stress ?? 0) === 'good' ? 'good' : stressTone(e.stress ?? 0))),
-      h('div', {}, kv('Commission this month', money(e.commission ?? 0)), kv('With the company', `${s.day - e.hiredDay} days`))));
+      meterRow('Performance', e.performance ?? 50, (e.performance ?? 50) >= 60 ? 'good' : 'warn'),
+      meterRow('Satisfaction', e.morale, moraleTone(e.morale)),
+      meterRow('Stress', e.stress ?? 0, stressTone(e.stress ?? 0)),
+      meterRow(e.level >= MAX_LEVEL ? `Level ${e.level} (max)` : `Level ${e.level} · XP ${e.xp}/${xpForLevel(e.level)}`, e.level >= MAX_LEVEL ? 100 : e.xp / xpForLevel(e.level) * 100, 'info')));
+    if (e.role === 'buyer' || e.role === 'procurement') {
+      const st = buyerStats(s, e.id, 30);
+      const value = st.realised - e.salary;
+      body.appendChild(h('div', { class: `buyer-value ${value >= 0 ? 'good' : 'bad'}` }, h('span', { text: '🔎' }),
+        h('div', {}, h('div', { class: 'card-title', text: `${st.bought} cars bought · ${money(st.realised)} margin realised (30 days)` }), h('div', { class: 'tiny muted', text: `Costs ${money(e.salary)}/month → ${value >= 0 ? 'adds' : 'costs'} ${money(Math.abs(value))} a month. ${st.missed} deals lapsed.` })),
+        h('button', { class: 'btn small', on: { click: () => { close(); ctx.go('inventory', { tab: 'buyers' }); } } }, 'Brief')));
+    }
+    body.appendChild(h('div', { class: 'bp-sub', text: 'Skills & character' }));
     body.appendChild(h('div', { class: 'skill-grid' }, ...SKILLS.map((k) => h('div', { class: `skill-row${k === ROLE_BY_ID[e.role].skill ? ' main' : ''}` },
       h('span', { class: 'tiny', text: SKILL_NAMES[k] }), progressBar(skillOf(e, k) / 100, k === ROLE_BY_ID[e.role].skill ? 'good' : 'info'), h('span', { class: 'tiny num', text: String(Math.round(skillOf(e, k))) })))));
+    // Today's plan for this person.
+    const today = s.appointments.filter((a) => a.staffId === e.id && a.day === s.day && a.status !== 'cancelled').sort((a, b) => a.start - b.start);
+    body.appendChild(h('div', { class: 'bp-sub', text: `Planning today (${today.length})` }));
+    body.appendChild(today.length ? h('div', { class: 'mini-plan' }, ...today.map((a) => h('div', { class: `mini-appt ${a.kind} ${a.status}` }, h('span', { class: 'num', text: fmtHour(a.start) }), h('span', { text: `${a.title} · ${a.vehicle}` })))) : h('p', { class: 'tiny muted', text: 'Nothing booked today.' }));
+    if (e.role === 'manager') {
+      body.appendChild(h('div', { class: 'bp-sub', text: 'Focus' }));
+      body.appendChild(h('div', { class: 'seg' }, ...(['general', 'sales', 'service'] as const).map((f) => h('button', { class: `seg-btn${e.focus === f ? ' active' : ''}`, data: { focus: f }, on: { click: () => run(setFocus(s, e.id, f)) } }, f === 'general' ? 'General manager' : f === 'sales' ? 'Sales manager' : 'Service manager'))));
+    }
     if (e.trainingDaysLeft > 0) body.appendChild(h('p', { class: 'tiny warn', text: `On a training course (${e.training ?? 'skills'}) for ${e.trainingDaysLeft} more day(s).` }));
     const tracks = TRAINING.filter((t) => t.roles.includes(e.role) || t.skill === ROLE_BY_ID[e.role].skill);
     body.appendChild(h('div', { class: 'bp-sub', text: 'Training courses' }));
@@ -158,6 +218,7 @@ export function openEmployee(ctx: Ctx, id: string): void {
         },
       },
     }, 'Fire'));
+    if (e.contract !== 'permanent' || (e.hours ?? 40) < 40) footer.appendChild(h('button', { class: 'btn', data: { act: 'permanent' }, on: { click: () => run(makePermanent(s, e.id)) } }, 'Permanent contract'));
     footer.appendChild(h('button', { class: 'btn', on: { click: () => run(giveRaise(s, e.id)) } }, 'Raise +8%'));
     const recent = e.bonusDay !== undefined && s.day - e.bonusDay < 30;
     footer.appendChild(h('button', { class: 'btn', disabled: recent, title: recent ? 'Once a month' : 'One-off bonus: morale up, stress down', on: { click: () => run(giveBonus(s, e.id)) } }, `Bonus ${money(bonusAmount(e))}`));
@@ -165,3 +226,13 @@ export function openEmployee(ctx: Ctx, id: string): void {
   };
   draw();
 }
+
+function fact(label: string, value: string): HTMLElement {
+  return h('div', { class: 'fact' }, h('span', { class: 'fact-k', text: label }), h('span', { class: 'fact-v', text: value }));
+}
+
+function meterRow(label: string, value: number, tone: string): HTMLElement {
+  return h('div', {}, h('div', { class: 'tiny muted', text: `${label}${label.startsWith('Level') ? '' : ` ${Math.round(value)}/100`}` }), progressBar(value / 100, tone));
+}
+
+export { kv };
