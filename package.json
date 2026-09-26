@@ -1,12 +1,13 @@
 {
   "name": "car-dealership-manager-tycoon",
-  "version": "7.2.0",
+  "version": "7.4.0",
   "private": true,
-  "description": "Car Dealership Manager Tycoon \u2014 a management game for PC browsers and Android. Buy, prepare and sell cars; grow a used-car lot into an automotive empire.",
+  "description": "Car Dealership Manager Tycoon — a management game for PC browsers and Android. Buy, prepare and sell cars; grow a used-car lot into an automotive empire.",
   "license": "UNLICENSED",
   "scripts": {
     "dev": "node scripts/serve.mjs --dev",
     "build": "node scripts/build.mjs",
+    "prebuild": "node tools/upgrade_2_5d.mjs",
     "start": "node scripts/serve.mjs",
     "typecheck": "tsc --noEmit -p .",
     "test": "npm run build && node tools/qa/sim-check.cjs && node tools/qa/build6.cjs && node tools/qa/buildrooms.cjs && node tools/qa/drive.cjs && node tools/qa/migrate.cjs",
