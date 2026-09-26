@@ -66,20 +66,31 @@ else{
     const helper=`function carPalette(hex:string){const n=parseInt(hex.replace('#',''),16)>>>0;const shade=(a:number)=>{const r=Math.max(0,Math.min(255,((n>>16)&255)+a)),gg=Math.max(0,Math.min(255,((n>>8)&255)+a)),b=Math.max(0,Math.min(255,(n&255)+a));return 'rgb('+r+','+gg+','+b+')'};return{body:shade(0),side:shade(-38),glass:'#17212b',trim:'#15181c'};}
 function vehicleShape(body:string){switch(body){case'Van':return{length:5,width:2.05,cabin:.58,nose:.13,rear:.08,roof:.92};case'Pickup':return{length:5.15,width:2.08,cabin:.48,nose:.14,rear:.05,roof:.88};case'SUV':case'Offroader':return{length:4.65,width:1.98,cabin:.62,nose:.14,rear:.08,roof:.92};case'Crossover':return{length:4.55,width:1.92,cabin:.61,nose:.14,rear:.08,roof:.88};case'Wagon':return{length:4.65,width:1.86,cabin:.64,nose:.14,rear:.1,roof:.86};case'Sedan':return{length:4.7,width:1.84,cabin:.59,nose:.18,rear:.12,roof:.84};case'Coupe':case'Roadster':return{length:4.35,width:1.84,cabin:.47,nose:.2,rear:.14,roof:.73};case'Convertible':return{length:4.3,width:1.84,cabin:.46,nose:.2,rear:.15,roof:.48};default:return{length:4.2,width:1.8,cabin:.58,nose:.17,rear:.1,roof:.8}}}`;
     const carFn=`function drawCar25D(g:CanvasRenderingContext2D,cam:Camera,dpr:number,x:number,y:number,angle:number,color:string,body:string,alpha=1,modelKey='',trim=''):void{
- const p=cam.toScreen(x,y),n=vehicleShape(body),pal=carPalette(color),s=Math.max(.55,cam.zoom*dpr*.62),L=n.length*s,W=n.width*s,H=n.roof*s;
+ const p=cam.toScreen(x,y),n=vehicleShape(body),pal=carPalette(color),s=Math.max(.55,cam.zoom*dpr*.62),L=n.length*s,W=n.width*s,H=n.roof*s;void H;
  const sporty=/sport|gt|rs|performance|corsa|track|dynamic|sportiva|baja|hx/i.test(modelKey+' '+trim),luxury=/luxury|executive|premium|exclusive|signature|grand|ultimate|excellence|onyx/i.test(modelKey+' '+trim),electric=/electric|ev|volt|elo|eon|voltis|ardent|voltara|solace|orion/i.test(modelKey+' '+trim),raised=/adventure|offroad|outback|awd|4x4/i.test(modelKey+' '+trim);
  g.save();g.setTransform(1,0,0,1,0,0);g.globalAlpha=alpha;g.translate(p.x*dpr,p.y*dpr);g.rotate(cam.projection==='iso'?angle+Math.PI/6:angle);
  g.fillStyle='rgba(0,0,0,.34)';g.beginPath();g.ellipse(.08*s,.2*s,L*.54,W*.25,0,0,Math.PI*2);g.fill();
  const a=L/2,b=W/2,wr=Math.max(5,W*.19),wy=b*.94,x1=-L*.30,x2=L*.31;
  g.fillStyle=pal.side;g.beginPath();g.moveTo(-a,0);g.lineTo(-a+L*.05,-b*.72);g.lineTo(a-L*.04,-b*.72);g.lineTo(a,0);g.lineTo(a-L*.04,b*.76);g.lineTo(-a+L*.05,b*.76);g.closePath();g.fill();
- g.fillStyle=pal.body;g.beginPath();g.moveTo(-a,0);g.lineTo(-a+L*n.rear,-b*.72);g.lineTo(-a+L*.18,-b);g.lineTo(a-L*n.nose,-b);g.lineTo(a,-b*.42);g.lineTo(a,b*.42);g.lineTo(a-L*n.nose,b);g.lineTo(-a+L*.18,b);g.lineTo(-a+L*n.rear,b*.72);g.closePath();g.fill();
+ g.fillStyle=luxury?'#f5f6f7':pal.body;g.beginPath();g.moveTo(-a,0);g.lineTo(-a+L*n.rear,-b*.72);g.lineTo(-a+L*.18,-b);g.lineTo(a-L*n.nose,-b);g.lineTo(a,-b*.42);g.lineTo(a,b*.42);g.lineTo(a-L*n.nose,b);g.lineTo(-a+L*.18,b);g.lineTo(-a+L*n.rear,b*.72);g.closePath();g.fill();
  const cf=a*.38,cb=-a*.38,cw=b*n.cabin;g.fillStyle=pal.body;g.beginPath();g.moveTo(cb,0);g.lineTo(cb+L*.08,-cw);g.lineTo(cf-L*.06,-cw*.96);g.lineTo(cf,0);g.lineTo(cf-L*.06,cw*.96);g.lineTo(cb+L*.08,cw);g.closePath();g.fill();
  g.fillStyle=pal.glass;g.beginPath();g.moveTo(cb+L*.07,0);g.lineTo(cb+L*.16,-cw*.78);g.lineTo(cf-L*.12,-cw*.74);g.lineTo(cf-L*.08,0);g.lineTo(cf-L*.12,cw*.74);g.lineTo(cb+L*.16,cw*.78);g.closePath();g.fill();
  const wheel=(wx:number,wy:number,far=false)=>{g.save();g.globalAlpha*=far?.55:1;g.translate(wx,wy);g.fillStyle='#0b0e12';g.beginPath();g.ellipse(0,0,wr*.55,wr,0,0,Math.PI*2);g.fill();g.fillStyle=sporty?'#aeb6bf':'#6d747d';g.beginPath();g.ellipse(0,0,wr*.27,wr*.48,0,0,Math.PI*2);g.fill();g.restore();};wheel(x1,-wy,true);wheel(x2,-wy,true);wheel(x1,wy);wheel(x2,wy);
  g.fillStyle=electric?'#d7fbff':'#fff2cc';g.fillRect(a-L*.055,-b*.67,L*.025,W*.19);g.fillRect(a-L*.055,b*.48,L*.025,W*.19);g.fillStyle='#f04b5c';g.fillRect(-a+L*.03,-b*.68,L*.025,W*.18);g.fillRect(-a+L*.03,b*.5,L*.025,W*.18);g.fillStyle=electric?'#20272e':pal.trim;g.fillRect(a-L*.08,-W*.20,L*.045,W*.40);
  if(sporty){g.fillStyle='#111419';g.fillRect(-a+L*.02,-b*.88,L*.16,W*.08);g.fillRect(-a+L*.02,b*.80,L*.16,W*.08);}if(raised){g.strokeStyle='#2b3036';g.lineWidth=Math.max(1,W*.025);g.strokeRect(-a*.62,-b*.94,L*.74,W*.04);g.strokeRect(-a*.62,b*.90,L*.74,W*.04);}g.restore();
 }`;
-    render=render.slice(0,carStart)+helper+'\n'+carFn+"\nexport function drawCar(g:CanvasRenderingContext2D,cam:Camera,dpr:number,x:number,y:number,angle:number,color:string,body:string,alpha=1,modelKey='',trim=''){drawCar25D(g,cam,dpr,x,y,angle,color,body,alpha,modelKey,trim);}\n"+render.slice(carEnd);
+    const wrapper=`export function drawCar(g:CanvasRenderingContext2D,...args:unknown[]):void{
+ if(args[0] instanceof Camera){
+  drawCar25D(g,args[0] as Camera,Number(args[1]),Number(args[2]),Number(args[3]),Number(args[4]),String(args[5]),String(args[6]),args[7]===undefined?1:Number(args[7]),args[8]===undefined?'':String(args[8]),args[9]===undefined?'':String(args[9]));
+  return;
+ }
+ const x=Number(args[0]),y=Number(args[1]),a=Number(args[2]),color=String(args[3]),body=String(args[4]),alpha=args[5]===undefined?1:Number(args[5]);
+ const L=body==='Van'||body==='Pickup'?4.7:body==='SUV'||body==='Crossover'||body==='Wagon'||body==='Offroader'?4.4:body==='Coupe'||body==='Convertible'?4.2:4;
+ const W=body==='Van'||body==='SUV'||body==='Pickup'||body==='Crossover'?1.9:1.78;
+ g.save();g.globalAlpha=alpha;g.translate(x,y);g.rotate(a);g.fillStyle='rgba(0,0,0,.35)';roundRect(g,-L/2+.15,-W/2+.2,L,W,.45);g.fill();g.fillStyle=color;roundRect(g,-L/2,-W/2,L,W,.45);g.fill();g.fillStyle='rgba(20,28,38,.92)';roundRect(g,-L*.28,-W/2+.18,L*.5,W-.36,.3);g.fill();g.restore();
+}
+`;
+    render=render.slice(0,carStart)+helper+'\n'+carFn+'\n'+wrapper+render.slice(carEnd);
     render=render.replace("drawCar(g, pose.x, pose.y, pose.angle, v.colorHex, v.body, s.moveCar === v.id ? 0.55 : 1);","drawCar(g,cam,dpr,pose.x,pose.y,pose.angle,v.colorHex,v.body,s.moveCar===v.id?.55:1,v.modelId,v.trim);");
     render=render.replace("drawCar(g, pose.x, pose.y, pose.angle, SERVICE_COLORS[hashStr(j.id) % SERVICE_COLORS.length], model?.body ?? 'Hatchback', 1);","drawCar(g,cam,dpr,pose.x,pose.y,pose.angle,SERVICE_COLORS[hashStr(j.id)%SERVICE_COLORS.length],model?.body??'Hatchback',1,j.vehicle,'service');");
     render=render.replace("for (const c of [...s.crowd.cars, ...s.crowd.roadCars]) drawCar(g, c.x, c.y, c.angle, c.color, c.body, c.alpha);","for (const c of [...s.crowd.cars,...s.crowd.roadCars]) drawCar(g,cam,dpr,c.x,c.y,c.angle,c.color,c.body,c.alpha,c.vehicleId??c.id,'traffic');");
