@@ -1,0 +1,45 @@
+name: Unpack Dealersim ZIP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unpack:
+    runs-on: ubuntu-latest
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack ZIP
+        run: |
+          set -e
+          zipfile="$(find . -maxdepth 1 -type f -name '*.zip' -print -quit)"
+          test -n "$zipfile"
+          mkdir -p .unpacked
+          unzip -q "$zipfile" -d .unpacked
+          shopt -s dotglob nullglob
+          entries=(.unpacked/*)
+          if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then
+            root="${entries[0]}"
+            cp -a "$root"/. ./
+          else
+            cp -a .unpacked/. ./
+          fi
+          rm -rf .unpacked "$zipfile"
+
+      - name: Commit unpacked files
+        run: |
+          set -e
+          rm -f .github/workflows/unpack.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Unpack Dealersim v7.2.0"
+          git push
