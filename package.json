@@ -1,0 +1,25 @@
+{
+  "name": "car-dealership-manager-tycoon",
+  "version": "7.1.0",
+  "private": true,
+  "description": "Car Dealership Manager Tycoon \u2014 a management game for PC browsers and Android. Buy, prepare and sell cars; grow a used-car lot into an automotive empire.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "node scripts/serve.mjs --dev",
+    "build": "node scripts/build.mjs",
+    "start": "node scripts/serve.mjs",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "npm run build && node tools/qa/sim-check.cjs && node tools/qa/build6.cjs && node tools/qa/drive.cjs && node tools/qa/migrate.cjs",
+    "test:e2e": "npm run build && node tools/qa/smoke.cjs && node tools/qa/playthrough.cjs && node tools/qa/playthrough.cjs build/qa phone && node tools/qa/flows.cjs && node tools/qa/flows4.cjs && node tools/qa/flows4.cjs build/qa phone && node tools/qa/flows5.cjs && node tools/qa/flows5.cjs build/qa phone && node tools/qa/flows6.cjs && node tools/qa/flows6.cjs build/qa phone && node tools/qa/build.cjs && node tools/qa/build.cjs build/qa phone && node tools/qa/tabs.cjs && node tools/qa/screens.cjs && node tools/qa/mobile.cjs",
+    "balance": "node tools/sim/balance.cjs 360 42",
+    "apk": "npm run build && python3 tools/apk/build_apk.py && python3 tools/apk/verify_apk.py",
+    "android:sync": "npm run build",
+    "android:gradle": "npm run build && cd android && ./gradlew assembleDebug"
+  },
+  "devDependencies": {
+    "typescript": ">=5.4.0 <7.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

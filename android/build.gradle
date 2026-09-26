@@ -1,0 +1,5 @@
+// Top-level build file. The app has no third-party dependencies: it is a
+// WebView shell around the game bundle in app/src/main/assets/www.
+plugins {
+    id 'com.android.application' version '8.5.2' apply false
+}

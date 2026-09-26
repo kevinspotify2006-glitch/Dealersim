@@ -1,0 +1,31 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.cdmt.game'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.cdmt.tycoon'
+        minSdk 24
+        // Kept in step with tools/apk/build_apk.py. Raise to 34+ for a Play Store
+        // upload (Gradle then signs with APK Signature Scheme v2/v3 automatically).
+        targetSdk 34
+        versionCode 8
+        versionName '7.1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // For a store release create your own keystore and add a signingConfig here.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
