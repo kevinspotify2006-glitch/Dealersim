@@ -27,8 +27,14 @@ jobs:
             cp -a /tmp/dealersim/. .
           fi
 
+          # Do not overwrite GitHub Actions workflows: the GitHub App token
+          # cannot push workflow-file changes without the workflows permission.
+          rm -rf .github/workflows
+          mkdir -p .github/workflows
+
           rm -rf /tmp/dealersim
           rm -f Dealersim-v7.1.0.zip
+          rm -f .extract-trigger
           rm -f .github/workflows/extract-v7.yml
 
       - name: Commit extracted project
